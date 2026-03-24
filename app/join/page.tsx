@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 function normalizeSessionCode(code: string) {
@@ -10,13 +10,17 @@ function normalizeSessionCode(code: string) {
 
 export default function JoinPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [sessionCode, setSessionCode] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const codeFromQr = searchParams.get("code") ?? "";
+  const [codeFromQr, setCodeFromQr] = useState("");
+
+  useEffect(() => {
+    const qp = new URLSearchParams(window.location.search);
+    setCodeFromQr(qp.get("code") ?? "");
+  }, []);
 
   useEffect(() => {
     if (!codeFromQr) return;
