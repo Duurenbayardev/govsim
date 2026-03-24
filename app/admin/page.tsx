@@ -90,10 +90,6 @@ export default function AdminLandingPage() {
               </div>
             </div>
             <div>
-              <div className="gov-label">Админ түлхүүр</div>
-              <div className="mt-1 break-all font-mono text-sm font-medium text-[#b8d4f0]">{adminKey}</div>
-            </div>
-            <div>
               <div className="gov-label">Төлөвлөсөн ирц</div>
               <div className="mt-1 font-mono text-xl font-semibold text-[#e8f4fc]">{createdPlannedCount ?? 0}</div>
             </div>

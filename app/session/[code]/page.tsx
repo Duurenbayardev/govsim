@@ -163,7 +163,7 @@ export default function SessionPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-5 py-10 md:px-8">
+    <div className="mx-auto w-full max-w-5xl px-5 py-8 md:px-8">
       {voteStatus ? (
         <div
           className={[
@@ -178,42 +178,43 @@ export default function SessionPage() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/25 pb-6">
-        <div>
-          <p className="gov-label text-white/80">Гишүүний санал</p>
-          <h1 className="gov-section-title mt-1 text-2xl font-semibold text-white md:text-3xl">
-            Хуралдаан {code}
-          </h1>
-          <p className="mt-1 text-sm text-white/80">
-            {memberName ? (
-              <>
-                Бүртгэгдсэн гишүүн: <span className="font-medium text-white">{memberName}</span>
-              </>
-            ) : (
-              "Санал өгөхийн тулд гишүүний нэвтрэлтээр орно уу."
-            )}
+      <div className="rounded-2xl border border-white/30 bg-[#0077b8]/55 p-5 shadow-[0_14px_36px_rgba(0,38,62,0.28)]">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/25 pb-4">
+          <div>
+            <p className="gov-label text-white/80">Хурлын гишүүн</p>
+            <h1 className="gov-section-title mt-1 text-2xl font-semibold text-white md:text-3xl">
+              Хуралдаан {code}
+            </h1>
+            <p className="mt-1 text-sm text-white/80">
+              {memberName ? (
+                <>
+                  Бүртгэгдсэн гишүүн: <span className="font-medium text-white">{memberName}</span>
+                </>
+              ) : (
+                "Санал өгөхийн тулд гишүүний нэвтрэлтээр орно уу."
+              )}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={leaveSession}
+              disabled={leaving}
+              className="rounded-lg border border-white/55 bg-[#005180]/70 px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#00659d] disabled:opacity-60"
+            >
+              {leaving ? "…" : "Хуралдаанаас гарах"}
+            </button>
+          </div>
+        </div>
+        {error ? (
+          <p className="mt-4 rounded-lg border border-red-400/45 bg-red-900/35 px-3 py-2 text-sm text-red-100">
+            {error}
           </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={leaveSession}
-            disabled={leaving}
-            className="rounded-md border border-white/55 bg-[#005180]/70 px-3 py-2 text-sm font-semibold text-white hover:bg-[#00659d] disabled:opacity-60"
-          >
-            {leaving ? "…" : "Хуралдаанаас гарах"}
-          </button>
-        </div>
+        ) : null}
       </div>
 
-      {error ? (
-        <p className="mt-4 rounded border border-red-500/40 bg-red-950/35 px-3 py-2 text-sm text-red-200">
-          {error}
-        </p>
-      ) : null}
-
       {!token ? (
-        <div className="mt-6 rounded-xl border border-white/30 bg-[#0077b8]/55 p-6 backdrop-blur-sm">
+        <div className="mt-6 rounded-2xl border border-white/30 bg-[#0077b8]/55 p-6 backdrop-blur-sm shadow-[0_14px_36px_rgba(0,38,62,0.28)]">
           <p className="text-sm text-[#b8d4f0]">
             {ready ? "Энэ төхөөрөмжид хүчинтэй хуралдааны мэдээлэл алга." : "Ачаалж байна…"}
           </p>
@@ -228,44 +229,62 @@ export default function SessionPage() {
       ) : null}
 
       {token ? (
-        <div className="mt-6 space-y-5 rounded-xl border border-white/30 bg-[#0077b8]/55 p-6 backdrop-blur-sm">
+        <div className="mt-6 rounded-2xl border border-white/30 bg-[#0077b8]/55 p-4 backdrop-blur-sm shadow-[0_14px_36px_rgba(0,38,62,0.28)]">
           {pollActive ? (
             <div className="rounded-md border border-white/25 bg-[#0069a3]/55 px-3 py-2 text-sm text-white/95">
               Санал нээлттэй — аль нэг товчийг дарна уу.
             </div>
           ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid h-[calc(100vh-280px)] min-h-[380px] grid-cols-2 gap-4">
             <button
               type="button"
               disabled={loading}
               onClick={() => castVote("approve")}
               className={[
-                "inline-flex items-center justify-center gap-2 rounded-md border px-4 py-3 text-base font-semibold transition disabled:cursor-not-allowed disabled:opacity-70",
+                "inline-flex h-full flex-col items-center justify-center gap-3 rounded-xl border px-3 py-3 text-center text-xl font-bold leading-tight transition disabled:cursor-not-allowed disabled:opacity-70 sm:px-4 sm:text-2xl md:text-4xl",
                 pollActive
-                  ? "border-[#3aa7ff] bg-[#1e88d3] text-white hover:bg-[#2b95df]"
-                  : "border-[#2f7fb2] bg-[#0f5d91] text-white hover:bg-[#1271b0]",
+                  ? "border-[#67c0ff] bg-[#1f8fda] text-white hover:bg-[#2ca0ee]"
+                  : "border-[#2f7fb2] bg-[#0f5d91] text-white/95 hover:bg-[#1271b0]",
               ].join(" ")}
             >
               {loading ? (
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
               ) : null}
-              Зөвшөөрөх
+              <svg
+                viewBox="0 0 24 24"
+                className="h-7 w-7 shrink-0 sm:h-8 sm:w-8 md:h-10 md:w-10"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
+                <path d="M20 7L9 18l-5-5" />
+              </svg>
+              <span className="max-w-full break-words">Зөвшөөрөх</span>
             </button>
             <button
               type="button"
               disabled={loading}
               onClick={() => castVote("deny")}
               className={[
-                "inline-flex items-center justify-center gap-2 rounded-md border px-4 py-3 text-base font-semibold transition disabled:cursor-not-allowed disabled:opacity-70",
+                "inline-flex h-full flex-col items-center justify-center gap-3 rounded-xl border px-3 py-3 text-center text-xl font-bold leading-tight transition disabled:cursor-not-allowed disabled:opacity-70 sm:px-4 sm:text-2xl md:text-4xl",
                 pollActive
-                  ? "border-[#facc15] bg-[#b08900] text-[#fff4cc] hover:bg-[#c89a00]"
+                  ? "border-[#f7de72] bg-[#b48a00] text-[#fff4cc] hover:bg-[#c59900]"
                   : "border-[#d4b038] bg-[#9d7b00] text-[#fff4cc] hover:bg-[#b08900]",
               ].join(" ")}
             >
               {loading ? (
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#fff4cc]/35 border-t-[#fff4cc]" />
               ) : null}
-              Татгалзах
+              <svg
+                viewBox="0 0 24 24"
+                className="h-7 w-7 shrink-0 sm:h-8 sm:w-8 md:h-10 md:w-10"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+              <span className="max-w-full break-words">Татгалзах</span>
             </button>
           </div>
         </div>
