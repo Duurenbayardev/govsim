@@ -41,6 +41,8 @@ type AdminMember = {
   kickedAt: string | null;
 };
 
+type ActiveDisplayPhase = "setup" | "countdown";
+
 function formatDate(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -83,13 +85,17 @@ export default function AdminSessionPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [refreshingMembers, setRefreshingMembers] = useState(false);
   const [kickingMemberId, setKickingMemberId] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<null | { type: "kick"; memberId: string } | { type: "delete" }>(
+    null
+  );
   const [tick, setTick] = useState(0);
   const [nowISO, setNowISO] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [receiveAt, setReceiveAt] = useState<number | null>(null);
+  const [activeDisplayPhase, setActiveDisplayPhase] = useState<ActiveDisplayPhase>("countdown");
   const autoClosedPollRef = useRef<string | null>(null);
-  const playedStartAudioForPollRef = useRef<string | null>(null);
   const receivePollIdRef = useRef<string | null>(null);
+  const setupTimeoutRef = useRef<number | null>(null);
   const qrRef = useRef<HTMLDivElement | null>(null);
 
   const xAdminKey = mounted ? adminKey : "";
@@ -106,11 +112,29 @@ export default function AdminSessionPage() {
     if (p?.isActive) {
       if (receivePollIdRef.current !== p.id) {
         receivePollIdRef.current = p.id;
-        setReceiveAt(Date.now());
+        setActiveDisplayPhase("setup");
+        const audio = new Audio("/api/audio/countdown-start");
+        audio.volume = 1;
+        void audio.play().catch(() => {
+          /* ignore autoplay block; user interaction will enable next attempt */
+        });
+        if (setupTimeoutRef.current != null) {
+          window.clearTimeout(setupTimeoutRef.current);
+        }
+        setupTimeoutRef.current = window.setTimeout(() => {
+          setReceiveAt(Date.now());
+          setActiveDisplayPhase("countdown");
+          setupTimeoutRef.current = null;
+        }, 1200);
       }
     } else {
+      if (setupTimeoutRef.current != null) {
+        window.clearTimeout(setupTimeoutRef.current);
+        setupTimeoutRef.current = null;
+      }
       receivePollIdRef.current = null;
       setReceiveAt(null);
+      setActiveDisplayPhase("countdown");
     }
   }, [code]);
 
@@ -129,7 +153,7 @@ export default function AdminSessionPage() {
           return;
         }
         const json: { members: AdminMember[] } = await res.json();
-        setMembers(json.members);
+        setMembers(json.members.filter((m) => !m.kickedAt));
       } finally {
         if (kind === "load") setMembersLoading(false);
         if (kind === "refresh") setRefreshingMembers(false);
@@ -137,17 +161,6 @@ export default function AdminSessionPage() {
     },
     [xAdminKey, code]
   );
-
-  useEffect(() => {
-    if (!xAdminKey) return;
-    void (async () => {
-      try {
-        await loadScreen();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
-      }
-    })();
-  }, [xAdminKey, code, loadScreen]);
 
   useEffect(() => {
     setNowISO(new Date().toISOString());
@@ -164,19 +177,26 @@ export default function AdminSessionPage() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const isSpace = e.code === "Space" || e.key === " " || e.key === "Spacebar";
-      if (!isSpace) return;
+      const isRefresh = e.key?.toLowerCase() === "r";
+      if (!isSpace && !isRefresh) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
       const isTypingContext =
         !!target &&
         (target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select");
       if (isTypingContext) return;
-      e.preventDefault();
-      setControlsOpen((v) => !v);
+      if (isSpace) {
+        e.preventDefault();
+        setControlsOpen((v) => !v);
+      }
+      if (isRefresh) {
+        e.preventDefault();
+        void loadScreen();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [loadScreen]);
 
   useEffect(() => {
     if (!pollFromScreen?.isActive) return;
@@ -184,28 +204,14 @@ export default function AdminSessionPage() {
     return () => window.clearInterval(id);
   }, [pollFromScreen?.isActive, pollFromScreen?.endsAt]);
 
-  useEffect(() => {
-    if (!pollFromScreen?.isActive || !pollFromScreen.id) {
-      playedStartAudioForPollRef.current = null;
-      return;
-    }
-    if (playedStartAudioForPollRef.current === pollFromScreen.id) return;
-    playedStartAudioForPollRef.current = pollFromScreen.id;
-    const audio = new Audio("/api/audio/countdown-start");
-    audio.volume = 1;
-    void audio.play().catch(() => {
-      /* ignore autoplay block; user interaction will enable next attempt */
-    });
-  }, [pollFromScreen?.id, pollFromScreen?.isActive]);
-
   const remaining = useMemo(() => {
-    if (!pollFromScreen?.isActive || receiveAt == null) return null;
+    if (!pollFromScreen?.isActive || activeDisplayPhase !== "countdown" || receiveAt == null) return null;
     void tick;
     return Math.max(
       0,
       (pollFromScreen.durationSeconds ?? 0) - Math.floor((Date.now() - receiveAt) / 1000)
     );
-  }, [pollFromScreen?.isActive, pollFromScreen?.durationSeconds, receiveAt, tick]);
+  }, [pollFromScreen?.isActive, pollFromScreen?.durationSeconds, receiveAt, tick, activeDisplayPhase]);
   const currentAttendance = attendance?.eligibleMemberCount ?? 0;
   const plannedAttendanceRaw = attendance?.plannedAttendeeCount ?? 0;
   const plannedAttendance =
@@ -216,6 +222,8 @@ export default function AdminSessionPage() {
         : Math.max(currentAttendance, 1);
   const attendancePercent =
     plannedAttendance > 0 ? Math.round((currentAttendance / plannedAttendance) * 1000) / 10 : 0;
+  const activePollId = pollFromScreen?.id ?? null;
+  const isPollActive = pollFromScreen?.isActive === true;
   const creditsDurationSec = useMemo(() => {
     if (!results) return 24;
     const nameCount = results.approve.length + results.deny.length;
@@ -294,8 +302,6 @@ export default function AdminSessionPage() {
 
   async function kickMember(memberId: string) {
     if (!xAdminKey) return;
-    const ok = window.confirm("Энэ гишүүнийг хуралдаанаас хасах уу?");
-    if (!ok) return;
     setKickingMemberId(memberId);
     setError(null);
     try {
@@ -311,7 +317,7 @@ export default function AdminSessionPage() {
         setError(text || "Гишүүнийг хасаж чадсангүй.");
         return;
       }
-      await loadMembers("refresh");
+      setMembers((prev) => prev.filter((m) => m.id !== memberId));
     } finally {
       setKickingMemberId(null);
     }
@@ -339,22 +345,20 @@ export default function AdminSessionPage() {
   }, [xAdminKey, code, loadScreen]);
 
   useEffect(() => {
-    if (!pollFromScreen?.isActive) {
+    if (!isPollActive) {
       autoClosedPollRef.current = null;
       return;
     }
-    if ((remaining ?? 0) > 0) return;
-    if (autoClosedPollRef.current === pollFromScreen.id) return;
-    autoClosedPollRef.current = pollFromScreen.id;
+    if (remaining == null) return;
+    if (remaining > 0) return;
+    if (!activePollId) return;
+    if (autoClosedPollRef.current === activePollId) return;
+    autoClosedPollRef.current = activePollId;
     void closePoll();
-  }, [pollFromScreen?.id, pollFromScreen?.isActive, remaining, closePoll]);
+  }, [activePollId, isPollActive, remaining, closePoll]);
 
   async function deleteSession() {
     if (!xAdminKey) return;
-    const ok = window.confirm(
-      "Энэ хуралдааныг бүрэн устгах уу? Бүх гишүүн, санал хураалт, санал устана. Буцаах боломжгүй."
-    );
-    if (!ok) return;
     setDeleting(true);
     setError(null);
     try {
@@ -375,6 +379,17 @@ export default function AdminSessionPage() {
     }
   }
 
+  async function onConfirmModalApprove() {
+    if (!confirmModal) return;
+    const current = confirmModal;
+    setConfirmModal(null);
+    if (current.type === "kick") {
+      await kickMember(current.memberId);
+      return;
+    }
+    await deleteSession();
+  }
+
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-[#0069a3] text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.08),transparent_45%)]" />
@@ -393,7 +408,7 @@ export default function AdminSessionPage() {
         {nowISO ? formatDate(nowISO) : "--/--/----"}
       </div>
       <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-md border border-white/20 bg-[#005180]/30 px-2 py-1 text-xs text-white/80 md:bottom-6 md:right-6">
-        Space: самбар
+        Space: самбар · R: шинэчлэх
       </div>
       {xAdminKey && controlsOpen ? (
         <div className="absolute bottom-4 left-1/2 z-30 w-[95vw] max-w-5xl -translate-x-1/2 rounded-xl border border-white/30 bg-[#003d60]/70 p-4 backdrop-blur-sm md:bottom-6">
@@ -482,7 +497,7 @@ export default function AdminSessionPage() {
               </button>
               <button
                 type="button"
-                onClick={deleteSession}
+                onClick={() => setConfirmModal({ type: "delete" })}
                 disabled={deleting}
                 className="rounded-md border border-red-300/70 bg-red-900/45 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/60 disabled:opacity-60"
               >
@@ -556,7 +571,7 @@ export default function AdminSessionPage() {
                     <button
                       type="button"
                       disabled={!!m.kickedAt || kickingMemberId === m.id}
-                      onClick={() => void kickMember(m.id)}
+                      onClick={() => setConfirmModal({ type: "kick", memberId: m.id })}
                       className="rounded-md border border-red-300/70 bg-red-900/45 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-900/60 disabled:opacity-60"
                     >
                       {kickingMemberId === m.id ? "…" : "Хасах"}
@@ -568,22 +583,62 @@ export default function AdminSessionPage() {
           </div>
         </div>
       ) : null}
+      {confirmModal ? (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-[#003d60]/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-white/30 bg-[#0069a3] p-5 shadow-2xl">
+            <h4 className="text-lg font-semibold text-white">Баталгаажуулалт</h4>
+            <p className="mt-2 text-sm text-white/90">
+              {confirmModal.type === "delete"
+                ? "Энэ хуралдааныг бүрэн устгах уу? Буцаах боломжгүй."
+                : "Энэ гишүүнийг хуралдаанаас хасах уу?"}
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="rounded-md border border-white/55 bg-[#005180]/70 px-3 py-2 text-sm font-semibold text-white hover:bg-[#00659d]"
+              >
+                Болих
+              </button>
+              <button
+                type="button"
+                onClick={() => void onConfirmModalApprove()}
+                className="rounded-md border border-red-300/70 bg-red-900/45 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/60"
+              >
+                Тийм
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {!pollFromScreen ? (
         <div className="flex min-h-screen items-center justify-center px-6 text-center">
-          <p className="text-3xl font-semibold md:text-5xl">Санал эхлээгүй</p>
+          <div>
+            <p className="text-4xl font-semibold md:text-6xl">ИРЦ {currentAttendance}/{plannedAttendance}</p>
+            <p className="mt-2 text-2xl font-semibold text-white/85 md:text-4xl">{attendancePercent.toFixed(1)}%</p>
+          </div>
         </div>
       ) : pollFromScreen.isActive ? (
         <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
-          <div className="mb-6 text-3xl font-semibold tracking-wide text-white md:text-5xl">
-            Ирц {currentAttendance}/{plannedAttendance} {attendancePercent.toFixed(1)}%
-          </div>
-          <div className="font-mono text-[10rem] font-bold leading-none tabular-nums text-[#fde047] md:text-[16rem]">
-            {remaining ?? 0}
-          </div>
-          <div className="mt-6 rounded-md border border-white/20 bg-[#005180]/30 px-4 py-2 text-sm text-white/90">
-            Санал өгсөн: {attendance?.votesCastCount ?? 0}
-          </div>
+          {activeDisplayPhase === "setup" ? (
+            <div>
+              <div className="text-4xl font-semibold tracking-wide text-white md:text-6xl">БЭЛДЭЖ БАЙНА...</div>
+              <div className="mt-4 text-xl text-white/85 md:text-3xl">ИРЦ {currentAttendance}/{plannedAttendance}</div>
+            </div>
+          ) : (
+            <>
+              <div className="mb-6 text-3xl font-semibold tracking-wide text-white md:text-5xl">
+                Ирц {currentAttendance}/{plannedAttendance} {attendancePercent.toFixed(1)}%
+              </div>
+              <div className="font-mono text-[10rem] font-bold leading-none tabular-nums text-[#fde047] md:text-[16rem]">
+                {remaining ?? 0}
+              </div>
+              <div className="mt-6 rounded-md border border-white/20 bg-[#005180]/30 px-4 py-2 text-sm text-white/90">
+                Санал өгсөн: {attendance?.votesCastCount ?? 0}
+              </div>
+            </>
+          )}
         </div>
       ) : results ? (
         <div className="min-h-screen px-6 pb-10 pt-32 md:px-10 md:pt-36">
@@ -605,14 +660,14 @@ export default function AdminSessionPage() {
           <div className="grid min-h-[70vh] grid-cols-2 gap-8 pt-10 md:gap-14">
             <div className="h-full overflow-hidden px-4 py-4 md:px-6">
               <div
-                className="screen-credits-track h-full pr-1"
+                className="screen-credits-track h-full pr-1 text-left"
                 style={{ animationDuration: `${creditsDurationSec}s`, animationIterationCount: "infinite" }}
               >
                 {results.approve.length === 0 ? (
                   <div className="pt-8 text-center text-3xl text-white/80 md:text-4xl">—</div>
                 ) : (
                   results.approve.map((v) => (
-                    <div key={v.memberId} className="mb-3 text-center text-2xl font-semibold md:text-4xl">
+                    <div key={v.memberId} className="mb-3 text-left text-2xl font-semibold md:text-4xl">
                       {v.fullName}
                     </div>
                   ))
@@ -621,14 +676,14 @@ export default function AdminSessionPage() {
             </div>
             <div className="h-full overflow-hidden px-4 py-4 md:px-6">
               <div
-                className="screen-credits-track h-full pr-1"
+                className="screen-credits-track h-full pr-1 text-left"
                 style={{ animationDuration: `${creditsDurationSec}s`, animationIterationCount: "infinite" }}
               >
                 {results.deny.length === 0 ? (
                   <div className="pt-8 text-center text-3xl text-[#fde047] md:text-4xl">—</div>
                 ) : (
                   results.deny.map((v) => (
-                    <div key={v.memberId} className="mb-3 text-center text-2xl font-semibold text-[#fde047] md:text-4xl">
+                    <div key={v.memberId} className="mb-3 text-left text-2xl font-semibold text-[#fde047] md:text-4xl">
                       {v.fullName}
                     </div>
                   ))

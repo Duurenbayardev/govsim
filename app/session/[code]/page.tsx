@@ -30,16 +30,33 @@ export default function SessionPage() {
   const [loading, setLoading] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [voteStatus, setVoteStatus] = useState<string | null>(null);
+  const [voteStatusType, setVoteStatusType] = useState<"success" | "error">("success");
   const [showVoteToast, setShowVoteToast] = useState(false);
   const [ready, setReady] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
   const pollActive = data?.poll?.isActive === true;
 
-  function triggerVoteToast(text: "Амжилттай" | "Амжилтгүй") {
+  function triggerVoteToast(text: string, type: "success" | "error" = "success") {
+    setVoteStatusType(type);
     setVoteStatus(text);
     setShowVoteToast(true);
     window.setTimeout(() => setShowVoteToast(false), 1500);
     window.setTimeout(() => setVoteStatus(null), 2100);
+  }
+
+  function toFriendlyMessage(raw: string) {
+    const t = raw.toLowerCase();
+    if (t.includes("no active poll") || t.includes("poll is closed")) {
+      return "Санал хураалт эхлээгүй байна.";
+    }
+    if (t.includes("member not found or kicked")) {
+      return "Та хурлаас хасагдсан байна.";
+    }
+    if (t.includes("missing authorization token")) {
+      return "Нэвтрэлт хүчингүй байна. Дахин нэвтэрнэ үү.";
+    }
+    return "Үйлдэл амжилтгүй боллоо.";
   }
 
   useEffect(() => {
@@ -68,7 +85,7 @@ export default function SessionPage() {
         });
         if (!res.ok) {
           const text = await res.text().catch(() => "");
-          setError(text || "Санал ачаалж чадсангүй.");
+          setError(toFriendlyMessage(text || "Санал ачаалж чадсангүй."));
           return;
         }
 
@@ -99,12 +116,13 @@ export default function SessionPage() {
       });
 
       if (!res.ok) {
-        triggerVoteToast("Амжилтгүй");
+        const text = await res.text().catch(() => "");
+        triggerVoteToast(toFriendlyMessage(text), "error");
         return;
       }
 
       await res.json().catch(() => null);
-      triggerVoteToast("Амжилттай");
+      triggerVoteToast("Саналыг хүлээж авлаа.", "success");
       setData((prev) =>
         prev
           ? {
@@ -117,7 +135,7 @@ export default function SessionPage() {
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
-      triggerVoteToast("Амжилтгүй");
+      triggerVoteToast("Сүлжээний алдаа гарлаа.", "error");
     } finally {
       setLoading(false);
     }
@@ -137,10 +155,12 @@ export default function SessionPage() {
       router.push("/");
       return;
     }
-    const ok = window.confirm(
-      "Энэ хуралдаанаас гарах уу? Ижил код, нэрээр дахин нэгдэж болно."
-    );
-    if (!ok) return;
+    setShowLeaveConfirm(true);
+  }
+
+  async function confirmLeaveSession() {
+    if (!token) return;
+    setShowLeaveConfirm(false);
     setLeaving(true);
     setError(null);
     try {
@@ -169,7 +189,7 @@ export default function SessionPage() {
           className={[
             "pointer-events-none fixed right-4 top-1/2 z-50 -translate-y-1/2 rounded-l-lg border px-5 py-3 text-sm font-semibold shadow-xl transition-all duration-500",
             showVoteToast ? "translate-x-0 opacity-100" : "translate-x-[120%] opacity-0",
-            voteStatus === "Амжилттай"
+            voteStatusType === "success"
               ? "border-emerald-400/55 bg-emerald-900/90 text-emerald-100"
               : "border-red-400/55 bg-red-900/90 text-red-100",
           ].join(" ")}
@@ -198,7 +218,7 @@ export default function SessionPage() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={leaveSession}
+              onClick={() => void leaveSession()}
               disabled={leaving}
               className="rounded-lg border border-white/55 bg-[#005180]/70 px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#00659d] disabled:opacity-60"
             >
@@ -225,6 +245,32 @@ export default function SessionPage() {
           >
             Нүүр хуудас руу буцах
           </button>
+        </div>
+      ) : null}
+      {showLeaveConfirm ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#003d60]/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-white/30 bg-[#0069a3] p-5 shadow-2xl">
+            <h4 className="text-lg font-semibold text-white">Баталгаажуулалт</h4>
+            <p className="mt-2 text-sm text-white/90">
+              Энэ хуралдаанаас гарах уу? Ижил код, нэрээр дахин нэгдэж болно.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowLeaveConfirm(false)}
+                className="rounded-md border border-white/55 bg-[#005180]/70 px-3 py-2 text-sm font-semibold text-white hover:bg-[#00659d]"
+              >
+                Болих
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmLeaveSession()}
+                className="rounded-md border border-red-300/70 bg-red-900/45 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/60"
+              >
+                Тийм
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

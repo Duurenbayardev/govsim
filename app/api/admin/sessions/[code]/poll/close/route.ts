@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { connectToDb } from "@/lib/mongodb";
-import { PollModel, SessionModel } from "@/lib/models";
+import { MemberModel, PollModel, SessionModel, VoteModel } from "@/lib/models";
 
 export async function POST(
   req: Request,
@@ -33,6 +33,34 @@ export async function POST(
 
   if (!poll) {
     return NextResponse.json({ error: "No open poll to close." }, { status: 400 });
+  }
+
+  const eligibleMembers = await MemberModel.find({ sessionCode, kickedAt: null })
+    .select({ _id: 1, fullName: 1 })
+    .lean();
+  const existingVotes = await VoteModel.find({ pollId: poll._id }).select({ memberId: 1 }).lean();
+  const votedSet = new Set(existingVotes.map((v) => v.memberId.toString()));
+  const missing = eligibleMembers.filter((m) => !votedSet.has(m._id.toString()));
+
+  if (missing.length > 0) {
+    await VoteModel.bulkWrite(
+      missing.map((m) => ({
+        updateOne: {
+          filter: { pollId: poll._id, memberId: m._id },
+          update: {
+            $set: {
+              pollId: poll._id,
+              sessionCode,
+              memberId: m._id,
+              fullNameSnapshot: m.fullName,
+              choice: "deny",
+              votedAt: now,
+            },
+          },
+          upsert: true,
+        },
+      }))
+    );
   }
 
   return NextResponse.json({ pollId: poll._id.toString() });

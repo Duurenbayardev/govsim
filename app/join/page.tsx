@@ -8,6 +8,8 @@ function normalizeSessionCode(code: string) {
   return digits.padStart(6, "0");
 }
 
+const MEMBER_NAME_PATTERN = /^[А-ЯӨҮЁ][а-яөүё]+\.[А-ЯӨҮЁ]$/u;
+
 export default function JoinPage() {
   const router = useRouter();
 
@@ -38,8 +40,8 @@ export default function JoinPage() {
       setError("Хуралдааны код яг 6 оронтой тоо байх ёстой.");
       return;
     }
-    if (name.length < 2) {
-      setError("Жагсаалтад бүртгэгдсэн бүтэн нэрээ оруулна уу.");
+    if (!MEMBER_NAME_PATTERN.test(name)) {
+      setError("Нэрийг Батмөнх.А хэлбэрээр оруулна уу.");
       return;
     }
 
@@ -74,6 +76,19 @@ export default function JoinPage() {
 
   return (
     <div className="mx-auto w-full max-w-md px-5 py-10 md:px-8">
+      <button
+        type="button"
+        onClick={() => {
+          if (window.history.length > 1) router.back();
+          else router.push("/");
+        }}
+        className="mb-4 inline-flex items-center gap-2 rounded-md border border-white/45 bg-[#005180]/60 px-3 py-2 text-sm font-semibold text-white hover:bg-[#00659d]"
+      >
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+        Буцах
+      </button>
       <p className="gov-label text-white/80">Гишүүний нэвтрэлт</p>
       <h1 className="gov-section-title mt-2 text-2xl font-semibold text-white md:text-3xl">
         Санал хураалтын хуралдаанд нэгдэх
@@ -105,11 +120,12 @@ export default function JoinPage() {
           <span className="gov-label">Бүтэн нэр (албан ёсны)</span>
           <input
             className="gov-input mt-2 w-full px-3 py-2.5"
-            placeholder="Жагсаалтад байгаа байдлаар"
+            placeholder="Жишээ: Батмөнх.А"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             autoComplete="name"
           />
+          <p className="mt-1 text-xs text-white/75">Формат: Овог.Н (ж: Батмөнх.А)</p>
         </label>
 
         {error ? (

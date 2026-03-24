@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { connectToDb } from "@/lib/mongodb";
 import { PollModel, SessionModel } from "@/lib/models";
 
+const COUNTDOWN_SETUP_LEAD_MS = 1200;
+
 export async function POST(
   req: Request,
   context: { params: Promise<{ code: string }> }
@@ -37,7 +39,9 @@ export async function POST(
   }
 
   const now = new Date();
-  const endsAt = new Date(now.getTime() + durationSec * 1000);
+  // Keep server voting window aligned with UI flow:
+  // admin shows a short "setup" phase before countdown starts.
+  const endsAt = new Date(now.getTime() + durationSec * 1000 + COUNTDOWN_SETUP_LEAD_MS);
 
   // Ensure only one poll is open at a time.
   await PollModel.updateMany(
