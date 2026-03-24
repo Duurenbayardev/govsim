@@ -2,6 +2,7 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import QrCreator from "qr-creator";
 
 type ScreenResponse = {
   sessionCode: string;
@@ -46,7 +47,12 @@ function formatDate(iso: string) {
 function formatTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleTimeString("mn-MN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return d.toLocaleTimeString("mn-MN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 }
 
 export default function AdminSessionPage() {
@@ -69,11 +75,13 @@ export default function AdminSessionPage() {
   const [deleting, setDeleting] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const [tick, setTick] = useState(0);
   const [nowISO, setNowISO] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const autoClosedPollRef = useRef<string | null>(null);
   const playedStartAudioForPollRef = useRef<string | null>(null);
+  const qrRef = useRef<HTMLDivElement | null>(null);
 
   const xAdminKey = mounted ? adminKey : "";
   const plannedFromQuery = Number.parseInt(searchParams.get("planned") ?? "", 10);
@@ -180,6 +188,26 @@ export default function AdminSessionPage() {
     const nameCount = results.approve.length + results.deny.length;
     return Math.max(12, Math.min(90, nameCount * 1.5));
   }, [results]);
+  const joinUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return `${window.location.origin}/join?code=${encodeURIComponent(code)}`;
+  }, [code]);
+
+  useEffect(() => {
+    if (!showQr || !qrRef.current || !joinUrl) return;
+    qrRef.current.innerHTML = "";
+    QrCreator.render(
+      {
+        text: joinUrl,
+        ecLevel: "H",
+        radius: 0.2,
+        fill: "#003d60",
+        background: "#ffffff",
+        size: 520,
+      },
+      qrRef.current
+    );
+  }, [showQr, joinUrl]);
 
   function resolveDurationSeconds(): number {
     if (durationPreset === "custom") {
@@ -286,28 +314,32 @@ export default function AdminSessionPage() {
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-[#0069a3] text-white">
-      <div className="pointer-events-none absolute left-8 top-6 z-20 text-lg font-semibold tracking-wide md:left-10 md:top-8 md:text-2xl">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.08),transparent_45%)]" />
+      <div className="pointer-events-none absolute left-8 top-6 z-20 rounded-md border border-white/20 bg-[#005180]/35 px-3 py-1 text-lg font-semibold tracking-wide md:left-10 md:top-8 md:text-2xl">
         {nowISO ? formatTime(nowISO) : "--:--:--"}
       </div>
       <button
         type="button"
         onClick={copyCode}
-        className="absolute left-1/2 top-6 z-30 -translate-x-1/2 rounded-md border border-white/45 bg-[#003d60]/45 px-3 py-1 text-lg font-semibold tracking-[0.2em] text-white hover:bg-[#005180]/70 md:top-8 md:text-2xl"
+        className="absolute left-1/2 top-6 z-30 -translate-x-1/2 rounded-md border border-white/45 bg-[#003d60]/55 px-4 py-1 text-lg font-semibold tracking-[0.2em] text-white hover:bg-[#005180]/80 md:top-8 md:text-2xl"
         title="Хуулах"
       >
         {copiedCode ? "Хуулагдлаа" : code}
       </button>
-      <div className="pointer-events-none absolute right-8 top-6 z-20 text-lg font-semibold tracking-wide md:right-10 md:top-8 md:text-2xl">
+      <div className="pointer-events-none absolute right-8 top-6 z-20 rounded-md border border-white/20 bg-[#005180]/35 px-3 py-1 text-lg font-semibold tracking-wide md:right-10 md:top-8 md:text-2xl">
         {nowISO ? formatDate(nowISO) : "--/--/----"}
       </div>
-      <div className="pointer-events-none absolute bottom-4 right-4 z-20 text-xs text-white/75 md:bottom-6 md:right-6">
+      <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-md border border-white/20 bg-[#005180]/30 px-2 py-1 text-xs text-white/80 md:bottom-6 md:right-6">
         Space: самбар
       </div>
       {xAdminKey && controlsOpen ? (
-        <div className="absolute bottom-4 left-1/2 z-30 w-[95vw] max-w-5xl -translate-x-1/2 rounded-xl border border-white/30 bg-[#003d60]/65 px-4 py-3 backdrop-blur-sm md:bottom-6">
-          <div className="flex flex-wrap items-center justify-center gap-2 md:gap-3">
-            <span className="text-sm text-white/85">Хугацаа:</span>
-            <div className="flex flex-wrap gap-2">
+        <div className="absolute bottom-4 left-1/2 z-30 w-[95vw] max-w-5xl -translate-x-1/2 rounded-xl border border-white/30 bg-[#003d60]/70 p-4 backdrop-blur-sm md:bottom-6">
+          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-md border border-white/20 bg-[#005180]/35 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-white/85">
+                Хугацаа
+              </span>
+              <div className="flex flex-wrap gap-2">
               {(["10", "15", "25"] as const).map((sec) => (
                 <button
                   key={sec}
@@ -339,53 +371,77 @@ export default function AdminSessionPage() {
               >
                 Өөрөө
               </button>
-            </div>{" "}
-            {durationPreset === "custom" ? (
-              <label className="inline-flex items-center gap-2">
-                <span className="text-xs text-white/80">5-600</span>
-                <input
-                  type="number"
-                  min={5}
-                  max={600}
-                  className="w-24 rounded-md border border-white/45 bg-[#004f7c]/60 px-2 py-1 text-sm text-white outline-none"
-                  value={customDuration}
-                  onChange={(e) => setCustomDuration(e.target.value)}
-                />
-              </label>
-            ) : null}
-            <button
-              type="button"
-              disabled={!xAdminKey || starting || !!pollFromScreen?.isActive}
-              onClick={startPoll}
-              className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
-            >
-              {starting ? "Нийтэлж байна…" : "Санал эхлүүлэх"}
-            </button>
-            <button
-              type="button"
-              disabled={!xAdminKey || closing || !pollFromScreen || !pollFromScreen.isActive}
-              onClick={closePoll}
-              className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
-            >
-              {closing ? "Хааж байна…" : "Санал хаах"}
-            </button>
-            <button
-              type="button"
-              onClick={refreshAll}
-              disabled={refreshing}
-              className="rounded-md border border-white/50 bg-[#004f7c]/60 px-3 py-2 text-sm font-semibold text-white hover:bg-[#005f93] disabled:opacity-60"
-            >
-              {refreshing ? "…" : "Шинэчлэх"}
-            </button>
-            <button
-              type="button"
-              onClick={deleteSession}
-              disabled={deleting}
-              className="rounded-md border border-red-300/70 bg-red-900/45 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/60 disabled:opacity-60"
-            >
-              {deleting ? "…" : "Хуралдаан устгах"}
-            </button>
-            {error ? <span className="text-sm text-amber-200">{error}</span> : null}
+              </div>
+              {durationPreset === "custom" ? (
+                <label className="inline-flex items-center gap-2">
+                  <span className="text-xs text-white/80">5-600</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={600}
+                    className="w-24 rounded-md border border-white/45 bg-[#004f7c]/60 px-2 py-1 text-sm text-white outline-none"
+                    value={customDuration}
+                    onChange={(e) => setCustomDuration(e.target.value)}
+                  />
+                </label>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={!xAdminKey || starting || !!pollFromScreen?.isActive}
+                onClick={startPoll}
+                className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
+              >
+                {starting ? "Нийтэлж байна…" : "Санал эхлүүлэх"}
+              </button>
+              <button
+                type="button"
+                disabled={!xAdminKey || closing || !pollFromScreen || !pollFromScreen.isActive}
+                onClick={closePoll}
+                className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
+              >
+                {closing ? "Хааж байна…" : "Санал хаах"}
+              </button>
+              <button
+                type="button"
+                onClick={refreshAll}
+                disabled={refreshing}
+                className="rounded-md border border-white/50 bg-[#004f7c]/60 px-3 py-2 text-sm font-semibold text-white hover:bg-[#005f93] disabled:opacity-60"
+              >
+                {refreshing ? "…" : "Шинэчлэх"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowQr(true)}
+                className="rounded-md border border-white/50 bg-[#004f7c]/60 px-3 py-2 text-sm font-semibold text-white hover:bg-[#005f93]"
+              >
+                QR код
+              </button>
+              <button
+                type="button"
+                onClick={deleteSession}
+                disabled={deleting}
+                className="rounded-md border border-red-300/70 bg-red-900/45 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/60 disabled:opacity-60"
+              >
+                {deleting ? "…" : "Хуралдаан устгах"}
+              </button>
+            </div>
+          </div>
+          {error ? <div className="mt-2 text-sm text-amber-200">{error}</div> : null}
+        </div>
+      ) : null}
+      {showQr ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#003d60]/80 p-6 backdrop-blur-sm">
+          <button
+            type="button"
+            onClick={() => setShowQr(false)}
+            className="absolute right-4 top-4 rounded-md border border-white/55 bg-[#005180]/70 px-3 py-2 text-sm font-semibold text-white hover:bg-[#00659d] md:right-6 md:top-6"
+          >
+            Хаах
+          </button>
+          <div className="rounded-2xl bg-white p-5 shadow-2xl">
+            <div ref={qrRef} className="h-[520px] w-[520px]" />
           </div>
         </div>
       ) : null}
@@ -402,9 +458,8 @@ export default function AdminSessionPage() {
           <div className="font-mono text-[10rem] font-bold leading-none tabular-nums text-[#fde047] md:text-[16rem]">
             {remaining ?? 0}
           </div>
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-x-10 gap-y-2 text-sm text-white/85">
-            <div>Ирц: {attendance?.eligibleMemberCount ?? 0}</div>
-            <div>Санал: {attendance?.votesCastCount ?? 0}</div>
+          <div className="mt-6 rounded-md border border-white/20 bg-[#005180]/30 px-4 py-2 text-sm text-white/90">
+            Санал өгсөн: {attendance?.votesCastCount ?? 0}
           </div>
         </div>
       ) : results ? (

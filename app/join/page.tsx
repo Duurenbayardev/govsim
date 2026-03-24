@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 function normalizeSessionCode(code: string) {
   const digits = code.replace(/\D/g, "").slice(0, 6);
@@ -10,17 +10,24 @@ function normalizeSessionCode(code: string) {
 
 export default function JoinPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [sessionCode, setSessionCode] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const codeFromQr = searchParams.get("code") ?? "";
+
+  useEffect(() => {
+    if (!codeFromQr) return;
+    setSessionCode(normalizeSessionCode(codeFromQr));
+  }, [codeFromQr]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    const code = normalizeSessionCode(sessionCode);
+    const code = normalizeSessionCode(codeFromQr || sessionCode);
     const name = fullName.trim();
 
     if (!/^\d{6}$/.test(code)) {
@@ -63,15 +70,18 @@ export default function JoinPage() {
 
   return (
     <div className="mx-auto w-full max-w-md px-5 py-10 md:px-8">
-      <p className="gov-label text-[#d4bc6a]">Гишүүний нэвтрэлт</p>
-      <h1 className="gov-section-title mt-2 text-2xl font-semibold text-[#e8f4fc] md:text-3xl">
+      <p className="gov-label text-white/80">Гишүүний нэвтрэлт</p>
+      <h1 className="gov-section-title mt-2 text-2xl font-semibold text-white md:text-3xl">
         Санал хураалтын хуралдаанд нэгдэх
       </h1>
-      <p className="mt-3 text-sm leading-relaxed text-[#8ab4d8]">
+      <p className="mt-3 text-sm leading-relaxed text-white/80">
         Дарга олгосон 6 оронтой хуралдааны код болон бүртгэлд гарсан бүтэн нэрээ оруулна уу.
       </p>
 
-      <form className="gov-panel mt-8 space-y-5 p-6" onSubmit={onSubmit}>
+      <form
+        className="mt-8 space-y-5 rounded-xl border border-white/30 bg-[#0077b8]/55 p-6 backdrop-blur-sm"
+        onSubmit={onSubmit}
+      >
         <label className="block">
           <span className="gov-label">Хуралдааны код</span>
           <input
@@ -82,7 +92,9 @@ export default function JoinPage() {
             onChange={(e) => setSessionCode(e.target.value)}
             maxLength={8}
             autoComplete="off"
+            disabled={!!codeFromQr}
           />
+          {codeFromQr ? <p className="mt-1 text-xs text-white/75">QR-аар код автоматаар бөглөгдсөн.</p> : null}
         </label>
 
         <label className="block">
@@ -108,6 +120,13 @@ export default function JoinPage() {
           className="gov-btn-primary w-full rounded-md px-4 py-2.5 text-sm font-semibold disabled:opacity-60"
         >
           {loading ? "Бүртгэж байна…" : "Хуралдаанд орох"}
+        </button>
+        <button
+          type="button"
+          onClick={() => router.push("/")}
+          className="w-full rounded-md border border-white/45 bg-[#005180]/60 px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#00659d]"
+        >
+          Нүүр хуудас
         </button>
       </form>
     </div>

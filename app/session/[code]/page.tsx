@@ -31,6 +31,7 @@ export default function SessionPage() {
   const [leaving, setLeaving] = useState(false);
   const [voteStatus, setVoteStatus] = useState<string | null>(null);
   const [showVoteToast, setShowVoteToast] = useState(false);
+  const [ready, setReady] = useState(false);
 
   const pollActive = data?.poll?.isActive === true;
 
@@ -52,6 +53,7 @@ export default function SessionPage() {
     }
     setToken(t);
     setMemberName(storedName);
+    setReady(true);
   }, [code]);
 
   /** Initial load only — no polling, no refresh */
@@ -132,7 +134,7 @@ export default function SessionPage() {
   async function leaveSession() {
     if (!token) {
       clearMemberStorage();
-      router.push("/join");
+      router.push("/");
       return;
     }
     const ok = window.confirm(
@@ -152,7 +154,7 @@ export default function SessionPage() {
         return;
       }
       clearMemberStorage();
-      router.push("/join");
+      router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
     } finally {
@@ -176,16 +178,16 @@ export default function SessionPage() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#c9a227]/20 pb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/25 pb-6">
         <div>
-          <p className="gov-label text-[#d4bc6a]">Гишүүний санал</p>
-          <h1 className="gov-section-title mt-1 text-2xl font-semibold text-[#e8f4fc] md:text-3xl">
+          <p className="gov-label text-white/80">Гишүүний санал</p>
+          <h1 className="gov-section-title mt-1 text-2xl font-semibold text-white md:text-3xl">
             Хуралдаан {code}
           </h1>
-          <p className="mt-1 text-sm text-[#8ab4d8]">
+          <p className="mt-1 text-sm text-white/80">
             {memberName ? (
               <>
-                Бүртгэгдсэн гишүүн: <span className="font-medium text-[#c8dff0]">{memberName}</span>
+                Бүртгэгдсэн гишүүн: <span className="font-medium text-white">{memberName}</span>
               </>
             ) : (
               "Санал өгөхийн тулд гишүүний нэвтрэлтээр орно уу."
@@ -197,7 +199,7 @@ export default function SessionPage() {
             type="button"
             onClick={leaveSession}
             disabled={leaving}
-            className="gov-btn-outline-light rounded-md px-3 py-2 text-sm font-semibold disabled:opacity-60"
+            className="rounded-md border border-white/55 bg-[#005180]/70 px-3 py-2 text-sm font-semibold text-white hover:bg-[#00659d] disabled:opacity-60"
           >
             {leaving ? "…" : "Хуралдаанаас гарах"}
           </button>
@@ -211,20 +213,27 @@ export default function SessionPage() {
       ) : null}
 
       {!token ? (
-        <div className="gov-panel mt-6 p-6">
-          <p className="text-sm text-[#b8d4f0]">Энэ төхөөрөмжид хүчинтэй хуралдааны мэдээлэл алга.</p>
+        <div className="mt-6 rounded-xl border border-white/30 bg-[#0077b8]/55 p-6 backdrop-blur-sm">
+          <p className="text-sm text-[#b8d4f0]">
+            {ready ? "Энэ төхөөрөмжид хүчинтэй хуралдааны мэдээлэл алга." : "Ачаалж байна…"}
+          </p>
           <button
             type="button"
-            onClick={() => router.push("/join")}
+            onClick={() => router.push("/")}
             className="gov-btn-primary mt-4 w-full rounded-md px-4 py-2.5 text-sm font-semibold"
           >
-            Гишүүний нэвтрэлт рүү буцах
+            Нүүр хуудас руу буцах
           </button>
         </div>
       ) : null}
 
       {token ? (
-        <div className="gov-panel mt-6 space-y-5 p-6">
+        <div className="mt-6 space-y-5 rounded-xl border border-white/30 bg-[#0077b8]/55 p-6 backdrop-blur-sm">
+          {pollActive ? (
+            <div className="rounded-md border border-white/25 bg-[#0069a3]/55 px-3 py-2 text-sm text-white/95">
+              Санал нээлттэй — аль нэг товчийг дарна уу.
+            </div>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <button
               type="button"
