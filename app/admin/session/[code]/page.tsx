@@ -1,19 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
-
-type AdminMembersResponse = {
-  members: Array<{ id: string; fullName: string; joinedAt: string; kickedAt: string | null }>;
-  poll: {
-    id: string;
-    problem: string;
-    startedAt: string;
-    endsAt: string;
-    status: "open" | "closed";
-  } | null;
-};
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ScreenResponse = {
   sessionCode: string;
@@ -39,6 +27,7 @@ type ScreenResponse = {
   };
   attendance?: {
     eligibleMemberCount: number;
+    plannedAttendeeCount?: number;
     votesCastCount: number;
     voteParticipationPercent: number;
   };
@@ -46,6 +35,18 @@ type ScreenResponse = {
 
 function msToSeconds(ms: number) {
   return Math.max(0, Math.ceil(ms / 1000));
+}
+
+function formatDate(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("mn-MN");
+}
+
+function formatTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString("mn-MN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 export default function AdminSessionPage() {
@@ -56,35 +57,26 @@ export default function AdminSessionPage() {
   const code = params.code;
   const adminKey = searchParams.get("key") ?? "";
 
-  const [members, setMembers] = useState<AdminMembersResponse["members"]>([]);
   const [pollFromScreen, setPollFromScreen] = useState<ScreenResponse["poll"]>(null);
   const [results, setResults] = useState<ScreenResponse["results"]>(null);
+  const [attendance, setAttendance] = useState<ScreenResponse["attendance"] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [problem, setProblem] = useState("");
   const [durationPreset, setDurationPreset] = useState<"10" | "15" | "25" | "custom">("10");
   const [customDuration, setCustomDuration] = useState("30");
   const [starting, setStarting] = useState(false);
   const [closing, setClosing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshingMembers, setRefreshingMembers] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   const [tick, setTick] = useState(0);
+  const [nowISO, setNowISO] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const autoClosedPollRef = useRef<string | null>(null);
+  const playedStartAudioForPollRef = useRef<string | null>(null);
 
-  const xAdminKey = adminKey;
-
-  const loadMembers = useCallback(async () => {
-    if (!xAdminKey) return;
-    const res = await fetch(`/api/admin/sessions/${code}/members`, {
-      headers: { "X-Admin-Key": xAdminKey },
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      setError(text || "Гишүүдийг ачаалж чадсангүй.");
-      return;
-    }
-    const json: { members: AdminMembersResponse["members"] } = await res.json();
-    setMembers(json.members);
-  }, [xAdminKey, code]);
+  const xAdminKey = mounted ? adminKey : "";
+  const plannedFromQuery = Number.parseInt(searchParams.get("planned") ?? "", 10);
 
   const loadScreen = useCallback(async () => {
     const res = await fetch(`/api/session/${code}/screen`);
@@ -92,6 +84,7 @@ export default function AdminSessionPage() {
     const json: ScreenResponse = await res.json();
     setPollFromScreen(json.poll);
     setResults(json.results);
+    setAttendance(json.attendance ?? null);
   }, [code]);
 
   const refreshAll = useCallback(async () => {
@@ -99,24 +92,53 @@ export default function AdminSessionPage() {
     setRefreshing(true);
     setError(null);
     try {
-      await Promise.all([loadMembers(), loadScreen()]);
+      await loadScreen();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
     } finally {
       setRefreshing(false);
     }
-  }, [xAdminKey, loadMembers, loadScreen]);
+  }, [xAdminKey, loadScreen]);
 
   useEffect(() => {
     if (!xAdminKey) return;
     void (async () => {
       try {
-        await Promise.all([loadMembers(), loadScreen()]);
+        await loadScreen();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
       }
     })();
-  }, [xAdminKey, code, loadMembers, loadScreen]);
+  }, [xAdminKey, code, loadScreen]);
+
+  useEffect(() => {
+    setNowISO(new Date().toISOString());
+    const id = window.setInterval(() => {
+      setNowISO(new Date().toISOString());
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const isSpace = e.code === "Space" || e.key === " " || e.key === "Spacebar";
+      if (!isSpace) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isTypingContext =
+        !!target &&
+        (target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select");
+      if (isTypingContext) return;
+      e.preventDefault();
+      setControlsOpen((v) => !v);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!pollFromScreen?.isActive) return;
@@ -124,11 +146,40 @@ export default function AdminSessionPage() {
     return () => window.clearInterval(id);
   }, [pollFromScreen?.isActive, pollFromScreen?.endsAt]);
 
+  useEffect(() => {
+    if (!pollFromScreen?.isActive || !pollFromScreen.id) {
+      playedStartAudioForPollRef.current = null;
+      return;
+    }
+    if (playedStartAudioForPollRef.current === pollFromScreen.id) return;
+    playedStartAudioForPollRef.current = pollFromScreen.id;
+    const audio = new Audio("/api/audio/countdown-start");
+    audio.volume = 1;
+    void audio.play().catch(() => {
+      /* ignore autoplay block; user interaction will enable next attempt */
+    });
+  }, [pollFromScreen?.id, pollFromScreen?.isActive]);
+
   const remaining = useMemo(() => {
     if (!pollFromScreen?.isActive) return null;
     void tick;
     return msToSeconds(new Date(pollFromScreen.endsAt).getTime() - Date.now());
   }, [pollFromScreen?.isActive, pollFromScreen?.endsAt, tick]);
+  const currentAttendance = attendance?.eligibleMemberCount ?? 0;
+  const plannedAttendanceRaw = attendance?.plannedAttendeeCount ?? 0;
+  const plannedAttendance =
+    plannedAttendanceRaw > 0
+      ? plannedAttendanceRaw
+      : Number.isFinite(plannedFromQuery) && plannedFromQuery > 0
+        ? plannedFromQuery
+        : Math.max(currentAttendance, 1);
+  const attendancePercent =
+    plannedAttendance > 0 ? Math.round((currentAttendance / plannedAttendance) * 1000) / 10 : 0;
+  const creditsDurationSec = useMemo(() => {
+    if (!results) return 24;
+    const nameCount = results.approve.length + results.deny.length;
+    return Math.max(12, Math.min(90, nameCount * 1.5));
+  }, [results]);
 
   function resolveDurationSeconds(): number {
     if (durationPreset === "custom") {
@@ -140,11 +191,6 @@ export default function AdminSessionPage() {
 
   async function startPoll() {
     if (!xAdminKey) return;
-    const p = problem.trim();
-    if (p.length < 3) {
-      setError("Санал хураалтад оруулах асуултыг бичнэ үү.");
-      return;
-    }
     setError(null);
     setStarting(true);
     try {
@@ -154,7 +200,7 @@ export default function AdminSessionPage() {
           "Content-Type": "application/json",
           "X-Admin-Key": xAdminKey,
         },
-        body: JSON.stringify({ problem: p, durationSeconds: resolveDurationSeconds() }),
+        body: JSON.stringify({ durationSeconds: resolveDurationSeconds() }),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
@@ -162,15 +208,25 @@ export default function AdminSessionPage() {
         return;
       }
       const json: { pollId: string; durationSeconds: number } = await res.json();
-      setProblem("");
       setError(`Санал эхэллээ (${json.pollId}, ${json.durationSeconds} сек).`);
       await loadScreen();
+      setControlsOpen(false);
     } finally {
       setStarting(false);
     }
   }
 
-  async function closePoll() {
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedCode(true);
+      window.setTimeout(() => setCopiedCode(false), 1200);
+    } catch {
+      setError("Код хуулж чадсангүй.");
+    }
+  }
+
+  const closePoll = useCallback(async () => {
     if (!xAdminKey) return;
     setError(null);
     setClosing(true);
@@ -189,7 +245,18 @@ export default function AdminSessionPage() {
     } finally {
       setClosing(false);
     }
-  }
+  }, [xAdminKey, code, loadScreen]);
+
+  useEffect(() => {
+    if (!pollFromScreen?.isActive) {
+      autoClosedPollRef.current = null;
+      return;
+    }
+    if ((remaining ?? 0) > 0) return;
+    if (autoClosedPollRef.current === pollFromScreen.id) return;
+    autoClosedPollRef.current = pollFromScreen.id;
+    void closePoll();
+  }, [pollFromScreen?.id, pollFromScreen?.isActive, remaining, closePoll]);
 
   async function deleteSession() {
     if (!xAdminKey) return;
@@ -217,110 +284,30 @@ export default function AdminSessionPage() {
     }
   }
 
-  async function kick(memberId: string) {
-    if (!xAdminKey) return;
-    setError(null);
-    const ok = window.confirm("Энэ гишүүнийг хуралдаанаас хасах уу?");
-    if (!ok) return;
-
-    try {
-      const res = await fetch(
-        `/api/admin/sessions/${code}/members/${encodeURIComponent(memberId)}/kick`,
-        {
-          method: "POST",
-          headers: { "X-Admin-Key": xAdminKey },
-        }
-      );
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setError(text || "Гишүүнийг хасаж чадсангүй.");
-        return;
-      }
-      setError("Гишүүн хасагдлаа.");
-      await loadMembers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
-    }
-  }
-
   return (
-    <div className="mx-auto w-full max-w-4xl px-5 py-10 md:px-8">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#c9a227]/20 pb-6">
-        <div>
-          <p className="gov-label text-[#d4bc6a]">Удирдлага</p>
-          <h1 className="gov-section-title mt-1 text-2xl font-semibold text-[#e8f4fc] md:text-3xl">
-            Удирдлагын самбар · {code}
-          </h1>
-          <p className="mt-2 max-w-xl text-sm text-[#8ab4d8]">
-            Асуултыг нийтлэх, санал хураалтын цонхыг удирдах, ирцийн жагсаалтыг хадгалах. Шинэчлэлт сүүлийн
-            төлөвийг татна.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 sm:items-end">
-          {xAdminKey ? (
-            <button
-              type="button"
-              onClick={refreshAll}
-              disabled={refreshing}
-              className="inline-flex items-center justify-center rounded-md border border-[#2a5a8a]/55 bg-[#071a2e]/70 px-3 py-2 text-sm font-semibold text-[#c8dff0] shadow-sm hover:bg-[#0a2740] disabled:opacity-60"
-            >
-              {refreshing ? "…" : "Шинэчлэх"}
-            </button>
-          ) : null}
-          <Link
-            href={`/screen/${code}`}
-            className="inline-flex items-center justify-center rounded-md border border-[#2a5a8a]/50 bg-[#071a2e]/60 px-3 py-2 text-sm font-semibold text-[#c8dff0] hover:bg-[#0a2740]"
-          >
-            Нийтийн дэлгэц
-          </Link>
-          <Link
-            href="/admin"
-            className="inline-flex items-center justify-center rounded-md border border-[#2a5a8a]/55 bg-[#071a2e]/70 px-3 py-2 text-sm font-semibold text-[#c8dff0] shadow-sm hover:bg-[#0a2740]"
-          >
-            Шинэ хуралдаан
-          </Link>
-          {xAdminKey ? (
-            <button
-              type="button"
-              onClick={deleteSession}
-              disabled={deleting}
-              className="inline-flex items-center justify-center rounded-md border border-red-500/45 bg-red-950/30 px-3 py-2 text-sm font-semibold text-red-200 hover:bg-red-950/50 disabled:opacity-60"
-            >
-              {deleting ? "…" : "Хуралдаан устгах"}
-            </button>
-          ) : null}
-        </div>
+    <div className="relative min-h-screen w-full overflow-hidden bg-[#0069a3] text-white">
+      <div className="pointer-events-none absolute left-8 top-6 z-20 text-lg font-semibold tracking-wide md:left-10 md:top-8 md:text-2xl">
+        {nowISO ? formatTime(nowISO) : "--:--:--"}
       </div>
-
-      {!xAdminKey ? (
-        <div className="mt-6 rounded-md border border-red-500/40 bg-red-950/30 p-5 text-sm text-red-200">
-          Админ түлхүүр шаардлагатай. Хуралдаан үүсгэж үед олгосон холбоосоор энэ хуудсыг нээнэ үү.
-        </div>
-      ) : null}
-
-      {error ? (
-        <p className="mt-4 rounded border border-amber-200/40 bg-[#2a1f0a]/40 px-3 py-2 text-sm text-amber-100">
-          {error}
-        </p>
-      ) : null}
-
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div className="gov-panel p-6">
-          <h2 className="gov-section-title text-lg font-semibold text-[#e8f4fc]">Санал нээх</h2>
-          <label className="mt-3 block">
-            <span className="gov-label">Асуулт / тавигдсан санал</span>
-            <textarea
-              className="gov-input mt-2 w-full px-3 py-2"
-              value={problem}
-              onChange={(e) => setProblem(e.target.value)}
-              rows={3}
-              placeholder="Жишээ нь: А шийдлийг зөвшөөрөх"
-            />
-          </label>
-
-          <div className="mt-4">
-            <span className="gov-label">Санал хураалтын цонх (секунд)</span>
-            <div className="mt-2 flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={copyCode}
+        className="absolute left-1/2 top-6 z-30 -translate-x-1/2 rounded-md border border-white/45 bg-[#003d60]/45 px-3 py-1 text-lg font-semibold tracking-[0.2em] text-white hover:bg-[#005180]/70 md:top-8 md:text-2xl"
+        title="Хуулах"
+      >
+        {copiedCode ? "Хуулагдлаа" : code}
+      </button>
+      <div className="pointer-events-none absolute right-8 top-6 z-20 text-lg font-semibold tracking-wide md:right-10 md:top-8 md:text-2xl">
+        {nowISO ? formatDate(nowISO) : "--/--/----"}
+      </div>
+      <div className="pointer-events-none absolute bottom-4 right-4 z-20 text-xs text-white/75 md:bottom-6 md:right-6">
+        Space: самбар
+      </div>
+      {xAdminKey && controlsOpen ? (
+        <div className="absolute bottom-4 left-1/2 z-30 w-[95vw] max-w-5xl -translate-x-1/2 rounded-xl border border-white/30 bg-[#003d60]/65 px-4 py-3 backdrop-blur-sm md:bottom-6">
+          <div className="flex flex-wrap items-center justify-center gap-2 md:gap-3">
+            <span className="text-sm text-white/85">Хугацаа:</span>
+            <div className="flex flex-wrap gap-2">
               {(["10", "15", "25"] as const).map((sec) => (
                 <button
                   key={sec}
@@ -330,10 +317,10 @@ export default function AdminSessionPage() {
                     setDurationPreset(sec);
                   }}
                   className={[
-                    "rounded-md border px-3 py-1.5 text-sm font-semibold",
+                    "rounded-md border px-3 py-1.5 text-sm font-semibold text-white",
                     durationPreset === sec
-                      ? "border-[#17649b] bg-[#17649b] text-white"
-                      : "border-[#2a5a8a]/45 bg-[#071a2e]/60 text-[#c8dff0] hover:bg-[#0a2740]",
+                      ? "border-white bg-white/30"
+                      : "border-white/45 bg-[#004f7c]/60 hover:bg-[#005f93]",
                   ].join(" ")}
                 >
                   {sec} сек
@@ -344,36 +331,33 @@ export default function AdminSessionPage() {
                 disabled={!!pollFromScreen?.isActive}
                 onClick={() => setDurationPreset("custom")}
                 className={[
-                  "rounded-md border px-3 py-1.5 text-sm font-semibold",
+                  "rounded-md border px-3 py-1.5 text-sm font-semibold text-white",
                   durationPreset === "custom"
-                    ? "border-[#17649b] bg-[#17649b] text-white"
-                    : "border-[#2a5a8a]/45 bg-[#071a2e]/60 text-[#c8dff0] hover:bg-[#0a2740]",
+                    ? "border-white bg-white/30"
+                    : "border-white/45 bg-[#004f7c]/60 hover:bg-[#005f93]",
                 ].join(" ")}
               >
                 Өөрөө
               </button>
-            </div>
+            </div>{" "}
             {durationPreset === "custom" ? (
-              <label className="mt-2 block">
-                <span className="text-xs text-[#8ab4d8]">Секунд (5–600)</span>
+              <label className="inline-flex items-center gap-2">
+                <span className="text-xs text-white/80">5-600</span>
                 <input
                   type="number"
                   min={5}
                   max={600}
-                  className="gov-input mt-1 w-full max-w-[120px] px-3 py-2"
+                  className="w-24 rounded-md border border-white/45 bg-[#004f7c]/60 px-2 py-1 text-sm text-white outline-none"
                   value={customDuration}
                   onChange={(e) => setCustomDuration(e.target.value)}
                 />
               </label>
             ) : null}
-          </div>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <button
               type="button"
               disabled={!xAdminKey || starting || !!pollFromScreen?.isActive}
               onClick={startPoll}
-              className="gov-btn-primary rounded-md px-4 py-2.5 text-sm font-semibold disabled:opacity-60"
+              className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
             >
               {starting ? "Нийтэлж байна…" : "Санал эхлүүлэх"}
             </button>
@@ -381,119 +365,105 @@ export default function AdminSessionPage() {
               type="button"
               disabled={!xAdminKey || closing || !pollFromScreen || !pollFromScreen.isActive}
               onClick={closePoll}
-              className="rounded-md border border-[#2a5a8a]/55 bg-[#0d3558] px-4 py-2.5 text-sm font-semibold text-[#c8dff0] hover:bg-[#123a5c] disabled:opacity-60"
+              className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
             >
               {closing ? "Хааж байна…" : "Санал хаах"}
             </button>
+            <button
+              type="button"
+              onClick={refreshAll}
+              disabled={refreshing}
+              className="rounded-md border border-white/50 bg-[#004f7c]/60 px-3 py-2 text-sm font-semibold text-white hover:bg-[#005f93] disabled:opacity-60"
+            >
+              {refreshing ? "…" : "Шинэчлэх"}
+            </button>
+            <button
+              type="button"
+              onClick={deleteSession}
+              disabled={deleting}
+              className="rounded-md border border-red-300/70 bg-red-900/45 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/60 disabled:opacity-60"
+            >
+              {deleting ? "…" : "Хуралдаан устгах"}
+            </button>
+            {error ? <span className="text-sm text-amber-200">{error}</span> : null}
+          </div>
+        </div>
+      ) : null}
+
+      {!pollFromScreen ? (
+        <div className="flex min-h-screen items-center justify-center px-6 text-center">
+          <p className="text-3xl font-semibold md:text-5xl">Санал эхлээгүй</p>
+        </div>
+      ) : pollFromScreen.isActive ? (
+        <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
+          <div className="mb-6 text-3xl font-semibold tracking-wide text-white md:text-5xl">
+            Ирц {currentAttendance}/{plannedAttendance} {attendancePercent.toFixed(1)}%
+          </div>
+          <div className="font-mono text-[10rem] font-bold leading-none tabular-nums text-[#fde047] md:text-[16rem]">
+            {remaining ?? 0}
+          </div>
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-x-10 gap-y-2 text-sm text-white/85">
+            <div>Ирц: {attendance?.eligibleMemberCount ?? 0}</div>
+            <div>Санал: {attendance?.votesCastCount ?? 0}</div>
+          </div>
+        </div>
+      ) : results ? (
+        <div className="min-h-screen px-6 pb-10 pt-32 md:px-10 md:pt-36">
+          <div className="pointer-events-none absolute left-6 top-24 w-[44%] text-center md:left-10 md:top-28">
+            <div className="text-3xl font-bold uppercase md:text-5xl">Зөвшөөрсөн</div>
+            <div className="mt-2 text-lg font-semibold md:text-2xl">
+              {results.approveCount}/{attendance?.eligibleMemberCount ?? results.totalVotes}{" "}
+              {results.approvePercent.toFixed(1)}%
+            </div>
+          </div>
+          <div className="pointer-events-none absolute right-6 top-24 w-[44%] text-center md:right-10 md:top-28">
+            <div className="text-3xl font-bold uppercase text-[#fde047] md:text-5xl">Татгалзсан</div>
+            <div className="mt-2 text-lg font-semibold text-[#fde047] md:text-2xl">
+              {results.denyCount}/{attendance?.eligibleMemberCount ?? results.totalVotes}{" "}
+              {results.denyPercent.toFixed(1)}%
+            </div>
           </div>
 
-          {pollFromScreen ? (
-            <div className="mt-4 rounded-md border border-[#2a5a8a]/40 bg-[#071a2e]/60 px-3 py-3 text-sm text-[#c8dff0]">
-              <div className="gov-label">Одоогийн хөдөлгөөн</div>
-              <div className="mt-1 font-medium text-[#e8f4fc]">{pollFromScreen.problem}</div>
-              <div className="mt-2 text-[#8ab4d8]">
-                {pollFromScreen.isActive ? `Үлдсэн хугацаа: ${remaining ?? 0} сек` : "Хаагдсан"}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4 text-sm text-[#8ab4d8]">Бүртгэлд идэвхтэй эсвэл өмнөх санал алга.</div>
-          )}
-        </div>
-
-        <div className="gov-panel p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <h2 className="gov-section-title text-lg font-semibold text-[#e8f4fc]">Ирц</h2>
-            {xAdminKey ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  setRefreshingMembers(true);
-                  setError(null);
-                  try {
-                    await loadMembers();
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
-                  } finally {
-                    setRefreshingMembers(false);
-                  }
-                }}
-                disabled={refreshingMembers}
-                className="shrink-0 rounded-md border border-[#2a5a8a]/55 bg-[#071a2e]/70 px-3 py-1.5 text-xs font-semibold text-[#c8dff0] hover:bg-[#0a2740] disabled:opacity-60"
+          <div className="grid min-h-[70vh] grid-cols-2 gap-8 pt-10 md:gap-14">
+            <div className="h-full overflow-hidden px-4 py-4 md:px-6">
+              <div
+                className="screen-credits-track h-full pr-1"
+                style={{ animationDuration: `${creditsDurationSec}s`, animationIterationCount: "infinite" }}
               >
-                {refreshingMembers ? "…" : "Шинэчлэх"}
-              </button>
-            ) : null}
-          </div>
-          <p className="mt-1 text-sm text-[#8ab4d8]">
-            Цаашид санал өгөх ёсгүй гишүүнийг жагсаалтаас хасна уу. Шинэчлэлтээр синк хийнэ.
-          </p>
-          <div className="mt-4 max-h-[420px] space-y-3 overflow-auto pr-1">
-            {members.length === 0 ? (
-              <div className="text-sm text-[#8ab4d8]">Бүртгэлд гишүүн алга.</div>
-            ) : (
-              members.map((m) => (
-                <div
-                  key={m.id}
-                  className="flex items-center justify-between gap-3 rounded-md border border-[#2a5a8a]/35 bg-[#071a2e]/55 p-3"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-semibold text-[#e8f4fc]">{m.fullName}</div>
-                    <div className="mt-1 text-xs text-[#8ab4d8]">
-                      {m.kickedAt ? "Хасагдсан" : "Эрхтэй"}
+                {results.approve.length === 0 ? (
+                  <div className="pt-8 text-center text-3xl text-white/80 md:text-4xl">—</div>
+                ) : (
+                  results.approve.map((v) => (
+                    <div key={v.memberId} className="mb-3 text-center text-2xl font-semibold md:text-4xl">
+                      {v.fullName}
                     </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={!xAdminKey || !!m.kickedAt}
-                    onClick={() => kick(m.id)}
-                    className="rounded-md border border-[#17649b] bg-[#17649b] px-3 py-2 text-xs font-semibold text-white hover:bg-[#155a94] disabled:opacity-60"
-                  >
-                    Хасах
-                  </button>
-                </div>
-              ))
-            )}
+                  ))
+                )}
+              </div>
+            </div>
+            <div className="h-full overflow-hidden px-4 py-4 md:px-6">
+              <div
+                className="screen-credits-track h-full pr-1"
+                style={{ animationDuration: `${creditsDurationSec}s`, animationIterationCount: "infinite" }}
+              >
+                {results.deny.length === 0 ? (
+                  <div className="pt-8 text-center text-3xl text-[#fde047] md:text-4xl">—</div>
+                ) : (
+                  results.deny.map((v) => (
+                    <div key={v.memberId} className="mb-3 text-center text-2xl font-semibold text-[#fde047] md:text-4xl">
+                      {v.fullName}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-
-      <div className="gov-panel mt-4 p-6">
-        <h2 className="gov-section-title text-lg font-semibold text-[#e8f4fc]">Бүртгэгдсэн дүн (урьдчилан харах)</h2>
-        {!results || !pollFromScreen || pollFromScreen.isActive ? (
-          <p className="mt-2 text-sm text-[#8ab4d8]">Дүн нь дарга саналыг хаасны дараа харагдана.</p>
-        ) : (
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-md border border-[#2a5a8a]/40 bg-[#071a2e]/55 p-4">
-              <div className="text-sm font-semibold text-[#c8dff0]">Зөвшөөрөх</div>
-              <div className="mt-1 font-mono text-xl font-semibold text-[#7ec8ff]">
-                {results.approvePercent.toFixed(1)}%
-              </div>
-              <div className="mt-3 space-y-2">
-                {results.approve.length === 0 ? <div className="text-sm text-[#6b9cc4]">Байхгүй</div> : null}
-                {results.approve.map((v) => (
-                  <div key={v.memberId} className="text-sm text-[#b8d4f0]">
-                    {v.fullName}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-md border border-[#2a5a8a]/40 bg-[#071a2e]/55 p-4">
-              <div className="text-sm font-semibold text-[#fde68a]">Татгалзах</div>
-              <div className="mt-1 font-mono text-xl font-semibold text-[#fde047]">
-                {results.denyPercent.toFixed(1)}%
-              </div>
-              <div className="mt-3 space-y-2">
-                {results.deny.length === 0 ? <div className="text-sm text-[#6b9cc4]">Байхгүй</div> : null}
-                {results.deny.map((v) => (
-                  <div key={v.memberId} className="text-sm text-[#fde047]">
-                    {v.fullName}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      ) : (
+        <div className="flex min-h-screen items-center justify-center px-6 text-center">
+          <p className="text-3xl font-semibold md:text-5xl">Санал хаагдсан</p>
+        </div>
+      )}
     </div>
   );
 }

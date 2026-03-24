@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0e2a47;
+  --background: #0069a3;
   --foreground: #c8dff0;
   --gov-paper: #faf8f4;
   --gov-paper-edge: #e2ddd3;
@@ -22,7 +22,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0e2a47;
+    --background: #0069a3;
     --foreground: #c8dff0;
   }
 }
@@ -35,16 +35,7 @@ body {
 /* Institutional backdrop: deep navy + restrained vignette + fine line texture */
 .gov-app-bg {
   background-color: var(--background);
-  background-image:
-    radial-gradient(ellipse 100% 70% at 50% -15%, rgba(23, 100, 155, 0.22), transparent 58%),
-    repeating-linear-gradient(
-      -32deg,
-      transparent,
-      transparent 14px,
-      rgba(255, 255, 255, 0.014) 14px,
-      rgba(255, 255, 255, 0.014) 15px
-    ),
-    linear-gradient(180deg, #0a1f33 0%, #0e2a47 48%, #123a5c 100%);
+  background-image: none;
   min-height: 100%;
 }
 

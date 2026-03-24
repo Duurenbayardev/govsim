@@ -18,10 +18,6 @@ export async function POST(
   }
 
   const body = await req.json().catch(() => null);
-  const problem = String(body?.problem ?? "").trim();
-  if (problem.length < 3) {
-    return NextResponse.json({ error: "Problem text is required." }, { status: 400 });
-  }
 
   const rawDur = body?.durationSeconds;
   let durationSec = 10;
@@ -51,7 +47,7 @@ export async function POST(
 
   const poll = await PollModel.create({
     sessionCode,
-    problem,
+    problem: "Санал хураалт",
     startedAt: now,
     endsAt,
     durationSeconds: durationSec,

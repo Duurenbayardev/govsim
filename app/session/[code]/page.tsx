@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type PollResponse = {
   poll: {
@@ -17,10 +17,6 @@ type PollResponse = {
   member: { fullName: string } | null;
 };
 
-function msToSeconds(ms: number) {
-  return Math.max(0, Math.ceil(ms / 1000));
-}
-
 export default function SessionPage() {
   const params = useParams<{ code: string }>();
   const router = useRouter();
@@ -32,13 +28,18 @@ export default function SessionPage() {
   const [data, setData] = useState<PollResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  /** Re-render every second for countdown display (no HTTP) */
-  const [tick, setTick] = useState(0);
+  const [voteStatus, setVoteStatus] = useState<string | null>(null);
+  const [showVoteToast, setShowVoteToast] = useState(false);
 
-  const myVote = data?.myVote ?? null;
-  const poll = data?.poll ?? null;
+  const pollActive = data?.poll?.isActive === true;
+
+  function triggerVoteToast(text: "Амжилттай" | "Амжилтгүй") {
+    setVoteStatus(text);
+    setShowVoteToast(true);
+    window.setTimeout(() => setShowVoteToast(false), 1500);
+    window.setTimeout(() => setVoteStatus(null), 2100);
+  }
 
   useEffect(() => {
     const t = localStorage.getItem("govsim_member_token");
@@ -53,63 +54,38 @@ export default function SessionPage() {
     setMemberName(storedName);
   }, [code]);
 
-  const fetchMe = useCallback(async () => {
+  /** Initial load only — no polling, no refresh */
+  useEffect(() => {
     if (!token) return;
-    try {
-      const res = await fetch(`/api/session/${code}/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setError(text || "Санал ачаалж чадсангүй.");
-        return;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/session/${code}/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setError(text || "Санал ачаалж чадсангүй.");
+          return;
+        }
+
+        const json: PollResponse = await res.json();
+        setData(json);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
       }
-
-      const json: PollResponse = await res.json();
-      setData(json);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
-    }
+    })();
   }, [token, code]);
-
-  /** Initial load only — no polling */
-  useEffect(() => {
-    if (!token) return;
-    void fetchMe();
-  }, [token, code, fetchMe]);
-
-  /** Local 1s tick while poll is active so countdown updates without extra requests */
-  useEffect(() => {
-    if (!poll?.isActive) return;
-    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [poll?.isActive, poll?.endsAt]);
-
-  const remainingSeconds = useMemo(() => {
-    if (!poll?.isActive) return null;
-    void tick; // recompute every second for live countdown (no extra HTTP)
-    return msToSeconds(new Date(poll.endsAt).getTime() - Date.now());
-  }, [poll?.isActive, poll?.endsAt, tick]);
-
-  async function onRefreshClick() {
-    if (!token) return;
-    setRefreshing(true);
-    setError(null);
-    await fetchMe();
-    setRefreshing(false);
-  }
 
   async function castVote(choice: "approve" | "deny") {
     if (!token) return;
-    if (!poll) return;
-    if (!poll.isActive) return;
-    if (myVote) return;
 
     setLoading(true);
     setError(null);
+    setVoteStatus(null);
+    setShowVoteToast(false);
     try {
       const res = await fetch(`/api/session/${code}/vote`, {
         method: "POST",
@@ -121,16 +97,25 @@ export default function SessionPage() {
       });
 
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setError(text || "Санал өгч чадсангүй.");
+        triggerVoteToast("Амжилтгүй");
         return;
       }
 
-      const json: { myVote: "approve" | "deny" } = await res.json();
-      setData((prev) => (prev ? { ...prev, myVote: json.myVote } : prev));
+      await res.json().catch(() => null);
+      triggerVoteToast("Амжилттай");
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              myVote: choice,
+              poll: prev.poll ? { ...prev.poll, isActive: true } : prev.poll,
+            }
+          : prev
+      );
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
+      triggerVoteToast("Амжилтгүй");
     } finally {
       setLoading(false);
     }
@@ -177,6 +162,20 @@ export default function SessionPage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-5 py-10 md:px-8">
+      {voteStatus ? (
+        <div
+          className={[
+            "pointer-events-none fixed right-4 top-1/2 z-50 -translate-y-1/2 rounded-l-lg border px-5 py-3 text-sm font-semibold shadow-xl transition-all duration-500",
+            showVoteToast ? "translate-x-0 opacity-100" : "translate-x-[120%] opacity-0",
+            voteStatus === "Амжилттай"
+              ? "border-emerald-400/55 bg-emerald-900/90 text-emerald-100"
+              : "border-red-400/55 bg-red-900/90 text-red-100",
+          ].join(" ")}
+        >
+          {voteStatus}
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#c9a227]/20 pb-6">
         <div>
           <p className="gov-label text-[#d4bc6a]">Гишүүний санал</p>
@@ -194,16 +193,6 @@ export default function SessionPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {token ? (
-            <button
-              type="button"
-              onClick={onRefreshClick}
-              disabled={refreshing}
-              className="rounded-md border border-[#2a5a8a]/55 bg-[#071a2e]/70 px-3 py-2 text-sm font-semibold text-[#c8dff0] shadow-sm hover:bg-[#0a2740] disabled:opacity-60"
-            >
-              {refreshing ? "…" : "Шинэчлэх"}
-            </button>
-          ) : null}
           <button
             type="button"
             onClick={leaveSession}
@@ -234,71 +223,42 @@ export default function SessionPage() {
         </div>
       ) : null}
 
-      {token && poll ? (
+      {token ? (
         <div className="gov-panel mt-6 space-y-5 p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-[240px]">
-              <h2 className="gov-section-title text-lg font-semibold text-[#e8f4fc]">Нийтэлсэн асуулт</h2>
-              <p className="mt-2 text-sm leading-relaxed text-[#b8d4f0]">{poll.problem}</p>
-            </div>
-
-            <div className="rounded-md border border-[#2a5a8a]/45 bg-[#071a2e]/60 px-3 py-2 text-sm text-[#c8dff0]">
-              <div className="gov-label">{poll.isActive ? "Үлдсэн хугацаа" : "Төлөв"}</div>
-              <div className="mt-1 font-mono font-semibold tabular-nums">
-                {poll.isActive ? `${remainingSeconds ?? 0} сек` : "Хаагдсан"}
-              </div>
-            </div>
-          </div>
-
           <div className="grid gap-3 sm:grid-cols-2">
             <button
               type="button"
-              disabled={!poll.isActive || !!myVote || loading}
+              disabled={loading}
               onClick={() => castVote("approve")}
               className={[
-                "rounded-md px-4 py-3 text-base font-semibold transition",
-                poll.isActive && !myVote
-                  ? "gov-btn-primary"
-                  : "border border-[#2a5a8a]/40 bg-[#071a2e]/50 text-[#6b9cc4]",
-                myVote === "approve" ? "ring-2 ring-[#17649b] ring-offset-2 ring-offset-[#0a2740]" : "",
+                "inline-flex items-center justify-center gap-2 rounded-md border px-4 py-3 text-base font-semibold transition disabled:cursor-not-allowed disabled:opacity-70",
+                pollActive
+                  ? "border-[#3aa7ff] bg-[#1e88d3] text-white hover:bg-[#2b95df]"
+                  : "border-[#2f7fb2] bg-[#0f5d91] text-white hover:bg-[#1271b0]",
               ].join(" ")}
             >
+              {loading ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+              ) : null}
               Зөвшөөрөх
             </button>
             <button
               type="button"
-              disabled={!poll.isActive || !!myVote || loading}
+              disabled={loading}
               onClick={() => castVote("deny")}
               className={[
-                "rounded-md px-4 py-3 text-base font-semibold transition",
-                poll.isActive && !myVote
-                  ? "border border-[#2a5a8a]/70 bg-[#0d3558] text-[#e8f4fc] hover:bg-[#123a5c]"
-                  : "border border-[#2a5a8a]/40 bg-[#071a2e]/50 text-[#6b9cc4]",
-                myVote === "deny" ? "ring-2 ring-[#17649b] ring-offset-2 ring-offset-[#0a2740]" : "",
+                "inline-flex items-center justify-center gap-2 rounded-md border px-4 py-3 text-base font-semibold transition disabled:cursor-not-allowed disabled:opacity-70",
+                pollActive
+                  ? "border-[#facc15] bg-[#b08900] text-[#fff4cc] hover:bg-[#c89a00]"
+                  : "border-[#d4b038] bg-[#9d7b00] text-[#fff4cc] hover:bg-[#b08900]",
               ].join(" ")}
             >
+              {loading ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#fff4cc]/35 border-t-[#fff4cc]" />
+              ) : null}
               Татгалзах
             </button>
           </div>
-
-          {myVote ? (
-            <p className="text-sm text-[#8ab4d8]">
-              Санал бүртгэгдлээ:{" "}
-              <span className="font-semibold text-[#c8dff0]">
-                {myVote === "approve" ? "Зөвшөөрөх" : "Татгалзах"}
-              </span>
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {token && !poll ? (
-        <div className="gov-panel mt-6 p-6">
-          <h2 className="gov-section-title text-lg font-semibold text-[#e8f4fc]">Нийтэлсэн санал алга</h2>
-          <p className="mt-2 text-sm text-[#8ab4d8]">
-            Дарга асуултыг нэээгүй байна. Санал зарласны дараа{" "}
-            <span className="font-semibold text-[#c8dff0]">Шинэчлэх</span> товчийг дарна уу.
-          </p>
         </div>
       ) : null}
     </div>

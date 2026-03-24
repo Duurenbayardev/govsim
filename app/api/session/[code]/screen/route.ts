@@ -28,9 +28,18 @@ export async function GET(
     sessionCode: sessionCode,
     kickedAt: null,
   });
+  const plannedAttendeeCount = Math.max(0, Number(session.plannedAttendeeCount ?? 0));
 
-  const poll = await PollModel.findOne({ sessionCode: sessionCode }).sort({ startedAt: -1 }).lean();
+  let poll = await PollModel.findOne({ sessionCode: sessionCode }).sort({ startedAt: -1 }).lean();
   const now = new Date();
+
+  if (poll && poll.status === "open" && now.getTime() >= new Date(poll.endsAt).getTime()) {
+    await PollModel.updateOne(
+      { _id: poll._id, status: "open" },
+      { $set: { status: "closed", closedAt: now, endsAt: now } }
+    );
+    poll = await PollModel.findById(poll._id).lean();
+  }
 
   if (!poll) {
     return NextResponse.json({
@@ -40,6 +49,7 @@ export async function GET(
       results: null,
       attendance: {
         eligibleMemberCount,
+        plannedAttendeeCount,
         votesCastCount: 0,
         voteParticipationPercent: 0,
       },
@@ -65,6 +75,7 @@ export async function GET(
 
   const attendance = {
     eligibleMemberCount,
+    plannedAttendeeCount,
     votesCastCount,
     voteParticipationPercent,
   };
@@ -109,6 +120,7 @@ export async function GET(
     },
     attendance: {
       eligibleMemberCount,
+      plannedAttendeeCount,
       votesCastCount: totalVotes,
       voteParticipationPercent:
         eligibleMemberCount > 0 ? Math.round((totalVotes / eligibleMemberCount) * 1000) / 10 : 0,

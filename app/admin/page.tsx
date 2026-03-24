@@ -7,21 +7,30 @@ export default function AdminLandingPage() {
   const [loading, setLoading] = useState(false);
   const [code, setCode] = useState<string | null>(null);
   const [adminKey, setAdminKey] = useState<string | null>(null);
+  const [plannedAttendeeCount, setPlannedAttendeeCount] = useState("25");
+  const [createdPlannedCount, setCreatedPlannedCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function createSession() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/sessions/create", { method: "POST" });
+      const raw = parseInt(plannedAttendeeCount, 10);
+      const normalized = Math.max(0, Number.isNaN(raw) ? 0 : raw);
+      const res = await fetch("/api/admin/sessions/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plannedAttendeeCount: normalized }),
+      });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         setError(text || "Хуралдаан үүсгэж чадсангүй.");
         return;
       }
-      const data: { code: string; adminKey: string } = await res.json();
+      const data: { code: string; adminKey: string; plannedAttendeeCount?: number } = await res.json();
       setCode(data.code);
       setAdminKey(data.adminKey);
+      setCreatedPlannedCount(data.plannedAttendeeCount ?? normalized);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
     } finally {
@@ -41,10 +50,20 @@ export default function AdminLandingPage() {
       </p>
 
       <div className="gov-panel mt-8 p-6">
+        <label className="block">
+          <span className="gov-label">Хуралдаанд оролцох хүний тоо</span>
+          <input
+            type="number"
+            min={0}
+            className="gov-input mt-2 w-full px-3 py-2.5"
+            value={plannedAttendeeCount}
+            onChange={(e) => setPlannedAttendeeCount(e.target.value)}
+          />
+        </label>
         <button
           onClick={createSession}
           disabled={loading}
-          className="gov-btn-primary w-full rounded-md px-4 py-3 text-sm font-semibold disabled:opacity-60"
+          className="gov-btn-primary mt-4 w-full rounded-md px-4 py-3 text-sm font-semibold disabled:opacity-60"
         >
           {loading ? "Хуралдаан гаргаж байна…" : "Шинэ санал хураалтын хуралдаан үүсгэх"}
         </button>
@@ -74,20 +93,18 @@ export default function AdminLandingPage() {
               <div className="gov-label">Админ түлхүүр</div>
               <div className="mt-1 break-all font-mono text-sm font-medium text-[#b8d4f0]">{adminKey}</div>
             </div>
+            <div>
+              <div className="gov-label">Төлөвлөсөн ирц</div>
+              <div className="mt-1 font-mono text-xl font-semibold text-[#e8f4fc]">{createdPlannedCount ?? 0}</div>
+            </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div>
             <Link
-              href={`/admin/session/${code}?key=${encodeURIComponent(adminKey)}`}
+              href={`/admin/session/${code}?key=${encodeURIComponent(adminKey)}&planned=${encodeURIComponent(String(createdPlannedCount ?? 0))}`}
               className="gov-btn-primary inline-flex items-center justify-center rounded-md px-4 py-2.5 text-center text-sm font-semibold"
             >
               Удирдлагын самбар нээх
-            </Link>
-            <Link
-              href={`/screen/${code}`}
-              className="inline-flex items-center justify-center rounded-md border border-[#2a5a8a]/55 bg-[#071a2e]/70 px-4 py-2.5 text-sm font-semibold text-[#c8dff0] hover:bg-[#0a2740]"
-            >
-              Нийтийн дэлгэц
             </Link>
           </div>
         </div>

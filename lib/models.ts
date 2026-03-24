@@ -11,6 +11,7 @@ const SessionSchema = new Schema(
   {
     code: { type: String, required: true, unique: true, index: true },
     adminKey: { type: String, required: true, index: true },
+    plannedAttendeeCount: { type: Number, required: true, default: 0, min: 0 },
     createdAt: { type: Date, required: true, default: () => new Date() },
   },
   { timestamps: false }
