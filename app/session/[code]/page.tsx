@@ -235,13 +235,13 @@ export default function SessionPage() {
               Санал нээлттэй — аль нэг товчийг дарна уу.
             </div>
           ) : null}
-          <div className="grid h-[calc(100vh-280px)] min-h-[380px] grid-cols-2 gap-4">
+          <div className="grid h-[calc(100dvh-320px)] min-h-[240px] grid-cols-2 gap-3 md:h-[calc(100dvh-300px)] md:min-h-[340px] md:gap-4">
             <button
               type="button"
               disabled={loading}
               onClick={() => castVote("approve")}
               className={[
-                "inline-flex h-full flex-col items-center justify-center gap-3 rounded-xl border px-3 py-3 text-center text-xl font-bold leading-tight transition disabled:cursor-not-allowed disabled:opacity-70 sm:px-4 sm:text-2xl md:text-4xl",
+                "inline-flex h-full flex-col items-center justify-center gap-2 rounded-xl border px-2 py-2 text-center text-lg font-bold leading-tight transition disabled:cursor-not-allowed disabled:opacity-70 sm:px-3 sm:py-3 sm:text-xl md:gap-3 md:px-4 md:text-4xl",
                 pollActive
                   ? "border-[#67c0ff] bg-[#1f8fda] text-white hover:bg-[#2ca0ee]"
                   : "border-[#2f7fb2] bg-[#0f5d91] text-white/95 hover:bg-[#1271b0]",
@@ -252,7 +252,7 @@ export default function SessionPage() {
               ) : null}
               <svg
                 viewBox="0 0 24 24"
-                className="h-7 w-7 shrink-0 sm:h-8 sm:w-8 md:h-10 md:w-10"
+                className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-10 md:w-10"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2.5"
@@ -266,7 +266,7 @@ export default function SessionPage() {
               disabled={loading}
               onClick={() => castVote("deny")}
               className={[
-                "inline-flex h-full flex-col items-center justify-center gap-3 rounded-xl border px-3 py-3 text-center text-xl font-bold leading-tight transition disabled:cursor-not-allowed disabled:opacity-70 sm:px-4 sm:text-2xl md:text-4xl",
+                "inline-flex h-full flex-col items-center justify-center gap-2 rounded-xl border px-2 py-2 text-center text-lg font-bold leading-tight transition disabled:cursor-not-allowed disabled:opacity-70 sm:px-3 sm:py-3 sm:text-xl md:gap-3 md:px-4 md:text-4xl",
                 pollActive
                   ? "border-[#f7de72] bg-[#b48a00] text-[#fff4cc] hover:bg-[#c59900]"
                   : "border-[#d4b038] bg-[#9d7b00] text-[#fff4cc] hover:bg-[#b08900]",
@@ -277,7 +277,7 @@ export default function SessionPage() {
               ) : null}
               <svg
                 viewBox="0 0 24 24"
-                className="h-7 w-7 shrink-0 sm:h-8 sm:w-8 md:h-10 md:w-10"
+                className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-10 md:w-10"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2.5"

@@ -34,9 +34,12 @@ type ScreenResponse = {
   };
 };
 
-function msToSeconds(ms: number) {
-  return Math.max(0, Math.ceil(ms / 1000));
-}
+type AdminMember = {
+  id: string;
+  fullName: string;
+  joinedAt: string;
+  kickedAt: string | null;
+};
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -71,16 +74,22 @@ export default function AdminSessionPage() {
   const [customDuration, setCustomDuration] = useState("30");
   const [starting, setStarting] = useState(false);
   const [closing, setClosing] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
+  const [members, setMembers] = useState<AdminMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [refreshingMembers, setRefreshingMembers] = useState(false);
+  const [kickingMemberId, setKickingMemberId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [nowISO, setNowISO] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [receiveAt, setReceiveAt] = useState<number | null>(null);
   const autoClosedPollRef = useRef<string | null>(null);
   const playedStartAudioForPollRef = useRef<string | null>(null);
+  const receivePollIdRef = useRef<string | null>(null);
   const qrRef = useRef<HTMLDivElement | null>(null);
 
   const xAdminKey = mounted ? adminKey : "";
@@ -93,20 +102,41 @@ export default function AdminSessionPage() {
     setPollFromScreen(json.poll);
     setResults(json.results);
     setAttendance(json.attendance ?? null);
+    const p = json.poll;
+    if (p?.isActive) {
+      if (receivePollIdRef.current !== p.id) {
+        receivePollIdRef.current = p.id;
+        setReceiveAt(Date.now());
+      }
+    } else {
+      receivePollIdRef.current = null;
+      setReceiveAt(null);
+    }
   }, [code]);
 
-  const refreshAll = useCallback(async () => {
-    if (!xAdminKey) return;
-    setRefreshing(true);
-    setError(null);
-    try {
-      await loadScreen();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
-    } finally {
-      setRefreshing(false);
-    }
-  }, [xAdminKey, loadScreen]);
+  const loadMembers = useCallback(
+    async (kind: "load" | "refresh" = "load") => {
+      if (!xAdminKey) return;
+      if (kind === "load") setMembersLoading(true);
+      if (kind === "refresh") setRefreshingMembers(true);
+      try {
+        const res = await fetch(`/api/admin/sessions/${code}/members`, {
+          headers: { "X-Admin-Key": xAdminKey },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setError(text || "Гишүүдийг ачаалж чадсангүй.");
+          return;
+        }
+        const json: { members: AdminMember[] } = await res.json();
+        setMembers(json.members);
+      } finally {
+        if (kind === "load") setMembersLoading(false);
+        if (kind === "refresh") setRefreshingMembers(false);
+      }
+    },
+    [xAdminKey, code]
+  );
 
   useEffect(() => {
     if (!xAdminKey) return;
@@ -169,10 +199,13 @@ export default function AdminSessionPage() {
   }, [pollFromScreen?.id, pollFromScreen?.isActive]);
 
   const remaining = useMemo(() => {
-    if (!pollFromScreen?.isActive) return null;
+    if (!pollFromScreen?.isActive || receiveAt == null) return null;
     void tick;
-    return msToSeconds(new Date(pollFromScreen.endsAt).getTime() - Date.now());
-  }, [pollFromScreen?.isActive, pollFromScreen?.endsAt, tick]);
+    return Math.max(
+      0,
+      (pollFromScreen.durationSeconds ?? 0) - Math.floor((Date.now() - receiveAt) / 1000)
+    );
+  }, [pollFromScreen?.isActive, pollFromScreen?.durationSeconds, receiveAt, tick]);
   const currentAttendance = attendance?.eligibleMemberCount ?? 0;
   const plannedAttendanceRaw = attendance?.plannedAttendeeCount ?? 0;
   const plannedAttendance =
@@ -251,6 +284,36 @@ export default function AdminSessionPage() {
       window.setTimeout(() => setCopiedCode(false), 1200);
     } catch {
       setError("Код хуулж чадсангүй.");
+    }
+  }
+
+  async function openMembersPanel() {
+    setShowMembers(true);
+    await loadMembers("load");
+  }
+
+  async function kickMember(memberId: string) {
+    if (!xAdminKey) return;
+    const ok = window.confirm("Энэ гишүүнийг хуралдаанаас хасах уу?");
+    if (!ok) return;
+    setKickingMemberId(memberId);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/sessions/${code}/members/${encodeURIComponent(memberId)}/kick`,
+        {
+          method: "POST",
+          headers: { "X-Admin-Key": xAdminKey },
+        }
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setError(text || "Гишүүнийг хасаж чадсангүй.");
+        return;
+      }
+      await loadMembers("refresh");
+    } finally {
+      setKickingMemberId(null);
     }
   }
 
@@ -405,11 +468,10 @@ export default function AdminSessionPage() {
               </button>
               <button
                 type="button"
-                onClick={refreshAll}
-                disabled={refreshing}
-                className="rounded-md border border-white/50 bg-[#004f7c]/60 px-3 py-2 text-sm font-semibold text-white hover:bg-[#005f93] disabled:opacity-60"
+                onClick={openMembersPanel}
+                className="rounded-md border border-white/50 bg-[#004f7c]/60 px-3 py-2 text-sm font-semibold text-white hover:bg-[#005f93]"
               >
-                {refreshing ? "…" : "Шинэчлэх"}
+                Гишүүд
               </button>
               <button
                 type="button"
@@ -442,6 +504,67 @@ export default function AdminSessionPage() {
           </button>
           <div className="rounded-2xl bg-white p-5 shadow-2xl">
             <div ref={qrRef} className="h-[520px] w-[520px]" />
+          </div>
+        </div>
+      ) : null}
+      {showMembers ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#003d60]/80 p-6 backdrop-blur-sm">
+          <button
+            type="button"
+            onClick={() => setShowMembers(false)}
+            className="absolute right-4 top-4 rounded-md border border-white/55 bg-[#005180]/70 px-3 py-2 text-sm font-semibold text-white hover:bg-[#00659d] md:right-6 md:top-6"
+          >
+            Хаах
+          </button>
+          <div className="w-full max-w-3xl rounded-2xl border border-white/30 bg-[#0069a3] p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-white">Хурлын гишүүд</h3>
+              <button
+                type="button"
+                onClick={() => void loadMembers("refresh")}
+                disabled={refreshingMembers}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/55 bg-[#005180]/70 text-white hover:bg-[#00659d] disabled:opacity-60"
+                title="Шинэчлэх"
+                aria-label="Шинэчлэх"
+              >
+                <svg viewBox="0 0 24 24" className={["h-5 w-5", refreshingMembers ? "animate-spin" : ""].join(" ")} fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 12a9 9 0 10-3.2 6.9" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] space-y-2 overflow-auto pr-1">
+              {membersLoading ? (
+                <div className="rounded-md border border-white/20 bg-[#005180]/45 px-3 py-3 text-sm text-white/90">
+                  Ачаалж байна…
+                </div>
+              ) : members.length === 0 ? (
+                <div className="rounded-md border border-white/20 bg-[#005180]/45 px-3 py-3 text-sm text-white/90">
+                  Бүртгэгдсэн гишүүн алга.
+                </div>
+              ) : (
+                members.map((m) => (
+                  <div
+                    key={m.id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-white/25 bg-[#005180]/40 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-semibold text-white">{m.fullName}</div>
+                      <div className="text-xs text-white/75">{m.kickedAt ? "Хасагдсан" : "Идэвхтэй"}</div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!!m.kickedAt || kickingMemberId === m.id}
+                      onClick={() => void kickMember(m.id)}
+                      className="rounded-md border border-red-300/70 bg-red-900/45 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-900/60 disabled:opacity-60"
+                    >
+                      {kickingMemberId === m.id ? "…" : "Хасах"}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       ) : null}
