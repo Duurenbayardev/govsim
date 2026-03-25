@@ -152,7 +152,7 @@ export default function SessionPage() {
   async function leaveSession() {
     if (!token) {
       clearMemberStorage();
-      router.push("/");
+      router.replace("/");
       return;
     }
     setShowLeaveConfirm(true);
@@ -168,13 +168,13 @@ export default function SessionPage() {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) {
+      if (!res.ok && res.status !== 404) {
         const text = await res.text().catch(() => "");
         setError(text || "Хуралдаанаас гарч чадсангүй.");
         return;
       }
       clearMemberStorage();
-      router.push("/");
+      router.replace("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
     } finally {
@@ -240,7 +240,7 @@ export default function SessionPage() {
           </p>
           <button
             type="button"
-            onClick={() => router.push("/")}
+            onClick={() => router.replace("/")}
             className="gov-btn-primary mt-4 w-full rounded-md px-4 py-2.5 text-sm font-semibold"
           >
             Нүүр хуудас руу буцах
