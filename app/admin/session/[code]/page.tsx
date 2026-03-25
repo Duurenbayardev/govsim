@@ -782,7 +782,7 @@ export default function AdminSessionPage() {
         <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
           {activeDisplayPhase === "setup" ? (
             <div>
-              <div className="text-4xl font-semibold tracking-wide text-white md:text-6xl">БЭЛДЭЖ БАЙНА...</div>
+              <div className="text-4xl font-semibold tracking-wide text-white md:text-6xl">САНАЛ ХУРААЛТ</div>
               <div className="mt-4 text-xl text-white/85 md:text-3xl">ИРЦ {currentAttendance}/{plannedAttendance}</div>
             </div>
           ) : (
