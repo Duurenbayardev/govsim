@@ -38,6 +38,8 @@ const PollSchema = new Schema(
     durationSeconds: { type: Number, required: true, default: 10, min: 1 },
     closedAt: { type: Date, required: false, default: null },
     status: { type: String, required: true, enum: ["open", "closed"], default: "open", index: true },
+    /** When true, vote tallies are shown but voter names are not revealed on the screen or in API results. */
+    anonymous: { type: Boolean, required: true, default: false },
   },
   { timestamps: false }
 );

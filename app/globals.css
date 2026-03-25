@@ -104,14 +104,19 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* Full-screen poll results “credit roll” (screen display) */
+/* Admin results credit roll: parent `.admin-credits-clip` must have `container-type: size` and a height.
+   Start offset uses 100cqh so the list enters from the bottom of the clip (not the middle of the viewport). */
 @keyframes screen-credits-roll {
   from {
-    transform: translate3d(0, 100vh, 0);
+    transform: translate3d(0, 100cqh, 0);
   }
   to {
-    transform: translate3d(0, calc(-100% - 100vh), 0);
+    transform: translate3d(0, calc(-100% - 100cqh), 0);
   }
+}
+
+.admin-credits-clip {
+  container-type: size;
 }
 
 .screen-credits-track {
@@ -125,3 +130,4 @@ body {
     animation-iteration-count: 1 !important;
   }
 }
+

@@ -41,6 +41,8 @@ export async function POST(
   const existingVotes = await VoteModel.find({ pollId: poll._id }).select({ memberId: 1 }).lean();
   const votedSet = new Set(existingVotes.map((v) => v.memberId.toString()));
   const missing = eligibleMembers.filter((m) => !votedSet.has(m._id.toString()));
+  const anonymous = poll.anonymous === true;
+  const snapshotFor = (fullName: string) => (anonymous ? "Нууц" : fullName);
 
   if (missing.length > 0) {
     await VoteModel.bulkWrite(
@@ -52,7 +54,7 @@ export async function POST(
               pollId: poll._id,
               sessionCode,
               memberId: m._id,
-              fullNameSnapshot: m.fullName,
+              fullNameSnapshot: snapshotFor(m.fullName),
               choice: "deny",
               votedAt: now,
             },

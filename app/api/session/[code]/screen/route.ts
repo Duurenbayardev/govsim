@@ -44,6 +44,8 @@ export async function GET(
     const existingVotes = await VoteModel.find({ pollId: poll._id }).select({ memberId: 1 }).lean();
     const votedSet = new Set(existingVotes.map((v) => v.memberId.toString()));
     const missing = eligibleMembers.filter((m) => !votedSet.has(m._id.toString()));
+    const anon = poll.anonymous === true;
+    const snapshotFor = (fullName: string) => (anon ? "Нууц" : fullName);
     if (missing.length > 0) {
       await VoteModel.bulkWrite(
         missing.map((m) => ({
@@ -54,7 +56,7 @@ export async function GET(
                 pollId: poll!._id,
                 sessionCode: sessionCode,
                 memberId: m._id,
-                fullNameSnapshot: m.fullName,
+                fullNameSnapshot: snapshotFor(m.fullName),
                 choice: "deny",
                 votedAt: now,
               },
@@ -93,6 +95,7 @@ export async function GET(
     closedAt: poll.closedAt ? new Date(poll.closedAt).toISOString() : null,
     status: poll.status as "open" | "closed",
     isActive,
+    anonymous: poll.anonymous === true,
   };
 
   const votesCastCount = await VoteModel.countDocuments({ pollId: poll._id });
@@ -124,12 +127,17 @@ export async function GET(
   const approvePercent = totalVotes ? (approveCount / totalVotes) * 100 : 0;
   const denyPercent = totalVotes ? (denyCount / totalVotes) * 100 : 0;
 
-  const approve = votes
-    .filter((v) => v.choice === "approve")
-    .map((v) => ({ memberId: v.memberId.toString(), fullName: v.fullNameSnapshot }));
-  const deny = votes
-    .filter((v) => v.choice === "deny")
-    .map((v) => ({ memberId: v.memberId.toString(), fullName: v.fullNameSnapshot }));
+  const isAnonymous = poll.anonymous === true;
+  const approve = isAnonymous
+    ? []
+    : votes
+        .filter((v) => v.choice === "approve")
+        .map((v) => ({ memberId: v.memberId.toString(), fullName: v.fullNameSnapshot }));
+  const deny = isAnonymous
+    ? []
+    : votes
+        .filter((v) => v.choice === "deny")
+        .map((v) => ({ memberId: v.memberId.toString(), fullName: v.fullNameSnapshot }));
 
   return NextResponse.json({
     sessionCode: sessionCode,
@@ -143,6 +151,7 @@ export async function GET(
       denyPercent,
       approve,
       deny,
+      anonymous: isAnonymous,
     },
     attendance: {
       eligibleMemberCount,

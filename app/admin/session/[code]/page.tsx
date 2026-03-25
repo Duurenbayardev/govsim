@@ -2,7 +2,6 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import QrCreator from "qr-creator";
 
 type ScreenResponse = {
   sessionCode: string;
@@ -16,6 +15,7 @@ type ScreenResponse = {
     closedAt: string | null;
     status: "open" | "closed";
     isActive: boolean;
+    anonymous?: boolean;
   } | null;
   results: null | {
     totalVotes: number;
@@ -25,6 +25,7 @@ type ScreenResponse = {
     denyPercent: number;
     approve: Array<{ memberId: string; fullName: string }>;
     deny: Array<{ memberId: string; fullName: string }>;
+    anonymous?: boolean;
   };
   attendance?: {
     eligibleMemberCount: number;
@@ -42,6 +43,94 @@ type AdminMember = {
 };
 
 type ActiveDisplayPhase = "setup" | "countdown";
+
+const DEMO_VOTER_COUNT = 50;
+
+/** Shown when ?demo=1 and there are no API results yet (layout / credits testing) */
+const DEMO_PREVIEW_RESULTS: NonNullable<ScreenResponse["results"]> = {
+  totalVotes: 100,
+  approveCount: 50,
+  denyCount: 50,
+  approvePercent: 50,
+  denyPercent: 50,
+  approve: [],
+  deny: [],
+  anonymous: false,
+};
+
+function createRand(seed: number) {
+  let a = seed;
+  return () => {
+    let t = (a += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const DUMMY_GIVEN = [
+  "Батбаяр",
+  "Энхбат",
+  "Оюун",
+  "Саран",
+  "Мөнх",
+  "Ариунаа",
+  "Ганбаатар",
+  "Наран",
+  "Төмөр",
+  "Энхжин",
+  "Болд",
+  "Сүхбаатар",
+  "Цэцэг",
+  "Дорж",
+  "Эрдэнэ",
+] as const;
+
+const DUMMY_FAMILY = [
+  "Батбаяр",
+  "Гансүх",
+  "Оюунболд",
+  "Санжаасүрэн",
+  "Мөнхбат",
+  "Энхтуяа",
+  "Батмөнх",
+  "Наранцогт",
+  "Төмөрбат",
+  "Доржсүрэн",
+  "Эрдэнэбат",
+  "Болормаа",
+  "Ганзориг",
+  "Сүрэнжав",
+  "Цэцэгмаа",
+] as const;
+
+/** One pool of DEMO_VOTER_COUNT names, each randomly assigned to approve or deny (stable per seed) */
+function buildRandomSplitDummyVoters(seed: number): {
+  approve: Array<{ memberId: string; fullName: string }>;
+  deny: Array<{ memberId: string; fullName: string }>;
+} {
+  const randName = createRand(seed);
+  const pool: Array<{ memberId: string; fullName: string }> = [];
+  for (let i = 0; i < DEMO_VOTER_COUNT; i++) {
+    const g = DUMMY_GIVEN[Math.floor(randName() * DUMMY_GIVEN.length)];
+    const f = DUMMY_FAMILY[Math.floor(randName() * DUMMY_FAMILY.length)];
+    pool.push({
+      memberId: `demo-${i}`,
+      fullName: `${g} ${f} (${i + 1})`,
+    });
+  }
+  const randSide = createRand(seed ^ 0xdeadbeef);
+  const approve: Array<{ memberId: string; fullName: string }> = [];
+  const deny: Array<{ memberId: string; fullName: string }> = [];
+  for (const v of pool) {
+    if (randSide() < 0.5) {
+      approve.push({ memberId: `${v.memberId}-z`, fullName: v.fullName });
+    } else {
+      deny.push({ memberId: `${v.memberId}-t`, fullName: v.fullName });
+    }
+  }
+  return { approve, deny };
+}
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -67,14 +156,19 @@ export default function AdminSessionPage() {
 
   const code = params.code;
   const adminKey = searchParams.get("key") ?? "";
+  const demoParam = searchParams.get("demo");
+  const demoMode =
+    demoParam != null &&
+    demoParam !== "" &&
+    !["0", "false", "no", "off"].includes(demoParam.toLowerCase());
 
   const [pollFromScreen, setPollFromScreen] = useState<ScreenResponse["poll"]>(null);
   const [results, setResults] = useState<ScreenResponse["results"]>(null);
   const [attendance, setAttendance] = useState<ScreenResponse["attendance"] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [durationPreset, setDurationPreset] = useState<"10" | "15" | "25" | "custom">("10");
   const [customDuration, setCustomDuration] = useState("30");
   const [starting, setStarting] = useState(false);
+  const [anonymousVoting, setAnonymousVoting] = useState(false);
   const [closing, setClosing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
@@ -148,8 +242,6 @@ export default function AdminSessionPage() {
           headers: { "X-Admin-Key": xAdminKey },
         });
         if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          setError(text || "Гишүүдийг ачаалж чадсангүй.");
           return;
         }
         const json: { members: AdminMember[] } = await res.json();
@@ -224,11 +316,54 @@ export default function AdminSessionPage() {
     plannedAttendance > 0 ? Math.round((currentAttendance / plannedAttendance) * 1000) / 10 : 0;
   const activePollId = pollFromScreen?.id ?? null;
   const isPollActive = pollFromScreen?.isActive === true;
+  const dummySplit = useMemo(() => buildRandomSplitDummyVoters(0x9e3779b9), []);
+
+  const resultsForUi = useMemo(() => {
+    if (results) return results;
+    if (demoMode) return DEMO_PREVIEW_RESULTS;
+    return null;
+  }, [results, demoMode]);
+
+  const approveDisplay = useMemo(() => {
+    if (!resultsForUi || resultsForUi.anonymous) return [];
+    return demoMode ? [...resultsForUi.approve, ...dummySplit.approve] : resultsForUi.approve;
+  }, [resultsForUi, demoMode, dummySplit.approve]);
+
+  const denyDisplay = useMemo(() => {
+    if (!resultsForUi || resultsForUi.anonymous) return [];
+    return demoMode ? [...resultsForUi.deny, ...dummySplit.deny] : resultsForUi.deny;
+  }, [resultsForUi, demoMode, dummySplit.deny]);
+
+  const resultStatsForScreen = useMemo(() => {
+    if (!resultsForUi || resultsForUi.anonymous) return null;
+    if (demoMode) {
+      const na = approveDisplay.length;
+      const nd = denyDisplay.length;
+      const t = na + nd;
+      return {
+        approveCount: na,
+        denyCount: nd,
+        totalVotes: t,
+        approvePercent: t ? (na / t) * 100 : 0,
+        denyPercent: t ? (nd / t) * 100 : 0,
+      };
+    }
+    return {
+      approveCount: resultsForUi.approveCount,
+      denyCount: resultsForUi.denyCount,
+      totalVotes: resultsForUi.totalVotes,
+      approvePercent: resultsForUi.approvePercent,
+      denyPercent: resultsForUi.denyPercent,
+    };
+  }, [resultsForUi, demoMode, approveDisplay.length, denyDisplay.length]);
+
+  /** One full scroll cycle (seconds). Short lists stay readable; long lists cap so the roll doesn’t crawl. */
   const creditsDurationSec = useMemo(() => {
-    if (!results) return 24;
-    const nameCount = results.approve.length + results.deny.length;
-    return Math.max(12, Math.min(90, nameCount * 1.5));
-  }, [results]);
+    if (!resultsForUi) return 24;
+    if (resultsForUi.anonymous) return 24;
+    const totalNames = approveDisplay.length + denyDisplay.length;
+    return Math.max(10, Math.min(28, 10 + totalNames * 0.25));
+  }, [resultsForUi, approveDisplay.length, denyDisplay.length]);
   const joinUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
     return `${window.location.origin}/join?code=${encodeURIComponent(code)}`;
@@ -236,18 +371,26 @@ export default function AdminSessionPage() {
 
   useEffect(() => {
     if (!showQr || !qrRef.current || !joinUrl) return;
-    qrRef.current.innerHTML = "";
-    QrCreator.render(
-      {
-        text: joinUrl,
-        ecLevel: "H",
-        radius: 0.2,
-        fill: "#003d60",
-        background: "#ffffff",
-        size: 520,
-      },
-      qrRef.current
-    );
+    let cancelled = false;
+    void import("qr-creator").then((mod) => {
+      if (cancelled || !qrRef.current) return;
+      const QrCreator = mod.default;
+      qrRef.current.innerHTML = "";
+      QrCreator.render(
+        {
+          text: joinUrl,
+          ecLevel: "H",
+          radius: 0.2,
+          fill: "#003d60",
+          background: "#ffffff",
+          size: 520,
+        },
+        qrRef.current
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [showQr, joinUrl]);
 
   function resolveDurationSeconds(): number {
@@ -260,7 +403,6 @@ export default function AdminSessionPage() {
 
   async function startPoll() {
     if (!xAdminKey) return;
-    setError(null);
     setStarting(true);
     try {
       const res = await fetch(`/api/admin/sessions/${code}/poll/start`, {
@@ -269,15 +411,15 @@ export default function AdminSessionPage() {
           "Content-Type": "application/json",
           "X-Admin-Key": xAdminKey,
         },
-        body: JSON.stringify({ durationSeconds: resolveDurationSeconds() }),
+        body: JSON.stringify({
+          durationSeconds: resolveDurationSeconds(),
+          anonymous: anonymousVoting,
+        }),
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setError(text || "Санал эхлүүлж чадсангүй.");
         return;
       }
-      const json: { pollId: string; durationSeconds: number } = await res.json();
-      setError(`Санал эхэллээ (${json.pollId}, ${json.durationSeconds} сек).`);
+      await res.json().catch(() => null);
       await loadScreen();
       setControlsOpen(false);
     } finally {
@@ -291,7 +433,7 @@ export default function AdminSessionPage() {
       setCopiedCode(true);
       window.setTimeout(() => setCopiedCode(false), 1200);
     } catch {
-      setError("Код хуулж чадсангүй.");
+      /* clipboard unavailable */
     }
   }
 
@@ -303,7 +445,6 @@ export default function AdminSessionPage() {
   async function kickMember(memberId: string) {
     if (!xAdminKey) return;
     setKickingMemberId(memberId);
-    setError(null);
     try {
       const res = await fetch(
         `/api/admin/sessions/${code}/members/${encodeURIComponent(memberId)}/kick`,
@@ -313,8 +454,6 @@ export default function AdminSessionPage() {
         }
       );
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setError(text || "Гишүүнийг хасаж чадсангүй.");
         return;
       }
       setMembers((prev) => prev.filter((m) => m.id !== memberId));
@@ -325,7 +464,6 @@ export default function AdminSessionPage() {
 
   const closePoll = useCallback(async () => {
     if (!xAdminKey) return;
-    setError(null);
     setClosing(true);
     try {
       const res = await fetch(`/api/admin/sessions/${code}/poll/close`, {
@@ -333,11 +471,8 @@ export default function AdminSessionPage() {
         headers: { "X-Admin-Key": xAdminKey },
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setError(text || "Саналыг хааж чадсангүй.");
         return;
       }
-      setError("Санал хаагдлаа.");
       await loadScreen();
     } finally {
       setClosing(false);
@@ -360,20 +495,16 @@ export default function AdminSessionPage() {
   async function deleteSession() {
     if (!xAdminKey) return;
     setDeleting(true);
-    setError(null);
     try {
       const res = await fetch(`/api/admin/sessions/${code}`, {
         method: "DELETE",
         headers: { "X-Admin-Key": xAdminKey },
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setError(text || "Хуралдааныг устгаж чадсангүй.");
         return;
       }
       router.push("/admin");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Сүлжээний алдаа.");
+    } catch {
     } finally {
       setDeleting(false);
     }
@@ -465,14 +596,43 @@ export default function AdminSessionPage() {
               ) : null}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                disabled={!xAdminKey || starting || !!pollFromScreen?.isActive}
-                onClick={startPoll}
-                className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
-              >
-                {starting ? "Нийтэлж байна…" : "Санал эхлүүлэх"}
-              </button>
+              <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                <button
+                  type="button"
+                  disabled={!xAdminKey || starting || !!pollFromScreen?.isActive}
+                  onClick={startPoll}
+                  className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
+                >
+                  {starting ? "Нийтэлж байна…" : "Санал эхлүүлэх"}
+                </button>
+                <label
+                  className={[
+                    "flex items-center gap-3 sm:justify-end",
+                    pollFromScreen?.isActive ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                  ].join(" ")}
+                  title="Дууссаны дараа санал өгсөн нэрсийг дэлгэцэд харуулахгүй"
+                >
+                  <span className="text-sm font-semibold text-white/95">Нууцлалтай</span>
+                  <div className="relative inline-flex h-7 w-12 shrink-0 items-center">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      className="peer sr-only"
+                      checked={anonymousVoting}
+                      disabled={!!pollFromScreen?.isActive}
+                      onChange={(e) => setAnonymousVoting(e.target.checked)}
+                    />
+                    <span
+                      className="pointer-events-none absolute inset-0 rounded-full border border-white/45 bg-[#003d60]/90 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-white/50 peer-checked:bg-white/25 peer-disabled:opacity-70"
+                      aria-hidden
+                    />
+                    <span
+                      className="pointer-events-none absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5 peer-disabled:opacity-80"
+                      aria-hidden
+                    />
+                  </div>
+                </label>
+              </div>
               <button
                 type="button"
                 disabled={!xAdminKey || closing || !pollFromScreen || !pollFromScreen.isActive}
@@ -505,7 +665,6 @@ export default function AdminSessionPage() {
               </button>
             </div>
           </div>
-          {error ? <div className="mt-2 text-sm text-amber-200">{error}</div> : null}
         </div>
       ) : null}
       {showQr ? (
@@ -612,14 +771,14 @@ export default function AdminSessionPage() {
         </div>
       ) : null}
 
-      {!pollFromScreen ? (
+      {!pollFromScreen && !demoMode ? (
         <div className="flex min-h-screen items-center justify-center px-6 text-center">
           <div>
             <p className="text-4xl font-semibold md:text-6xl">ИРЦ {currentAttendance}/{plannedAttendance}</p>
             <p className="mt-2 text-2xl font-semibold text-white/85 md:text-4xl">{attendancePercent.toFixed(1)}%</p>
           </div>
         </div>
-      ) : pollFromScreen.isActive ? (
+      ) : pollFromScreen?.isActive ? (
         <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
           {activeDisplayPhase === "setup" ? (
             <div>
@@ -640,55 +799,107 @@ export default function AdminSessionPage() {
             </>
           )}
         </div>
-      ) : results ? (
-        <div className="min-h-screen px-6 pb-10 pt-32 md:px-10 md:pt-36">
-          <div className="pointer-events-none absolute left-6 top-24 w-[44%] text-center md:left-10 md:top-28">
-            <div className="text-3xl font-bold uppercase md:text-5xl">Зөвшөөрсөн</div>
-            <div className="mt-2 text-lg font-semibold md:text-2xl">
-              {results.approveCount}/{attendance?.eligibleMemberCount ?? results.totalVotes}{" "}
-              {results.approvePercent.toFixed(1)}%
+      ) : resultsForUi ? (
+        <div className="flex min-h-screen flex-col px-6 pb-6 pt-24 md:px-10 md:pt-28">
+          {demoMode && !results ? (
+            <div className="mb-3 text-center text-sm font-semibold uppercase tracking-wide text-white/75">
+              Дэмо горим — зөвхөн дизайн (?demo=1)
             </div>
-          </div>
-          <div className="pointer-events-none absolute right-6 top-24 w-[44%] text-center md:right-10 md:top-28">
-            <div className="text-3xl font-bold uppercase text-[#fde047] md:text-5xl">Татгалзсан</div>
-            <div className="mt-2 text-lg font-semibold text-[#fde047] md:text-2xl">
-              {results.denyCount}/{attendance?.eligibleMemberCount ?? results.totalVotes}{" "}
-              {results.denyPercent.toFixed(1)}%
-            </div>
-          </div>
-
-          <div className="grid min-h-[70vh] grid-cols-2 gap-8 pt-10 md:gap-14">
-            <div className="h-full overflow-hidden px-4 py-4 md:px-6">
-              <div
-                className="screen-credits-track h-full pr-1 text-left"
-                style={{ animationDuration: `${creditsDurationSec}s`, animationIterationCount: "infinite" }}
-              >
-                {results.approve.length === 0 ? (
-                  <div className="pt-8 text-center text-3xl text-white/80 md:text-4xl">—</div>
-                ) : (
-                  results.approve.map((v) => (
-                    <div key={v.memberId} className="mb-3 text-left text-2xl font-semibold md:text-4xl">
-                      {v.fullName}
+          ) : null}
+          <div className="mx-auto grid min-h-0 w-full max-w-[min(100%,96rem)] flex-1 grid-cols-2 gap-6 md:gap-12">
+            <div
+              className={[
+                "flex min-h-0 flex-col gap-1",
+                resultsForUi.anonymous
+                  ? "min-h-[70vh] items-center justify-center text-center"
+                  : "md:min-h-0 md:flex-1",
+              ].join(" ")}
+            >
+              {resultsForUi.anonymous ? (
+                <div className="flex w-full shrink-0 flex-col items-center text-center">
+                  <div className="text-4xl font-bold uppercase md:text-6xl lg:text-7xl">Зөвшөөрсөн</div>
+                  <div className="mt-1 text-2xl font-semibold md:text-4xl lg:text-5xl">
+                    {resultsForUi.approveCount}/{attendance?.eligibleMemberCount ?? resultsForUi.totalVotes}{" "}
+                    {resultsForUi.approvePercent.toFixed(1)}%
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-0 sm:px-3 md:px-8 lg:px-12 xl:px-16 2xl:px-24">
+                  <div className="mx-auto w-full max-w-[26rem] shrink-0">
+                    <div className="text-start leading-tight">
+                      <div className="text-3xl font-bold uppercase md:text-5xl">Зөвшөөрсөн</div>
+                      <div className="mt-1 text-lg font-semibold leading-tight md:text-2xl">
+                        {resultStatsForScreen!.approveCount}/
+                        {attendance?.eligibleMemberCount ?? resultStatsForScreen!.totalVotes}{" "}
+                        {resultStatsForScreen!.approvePercent.toFixed(1)}%
+                      </div>
                     </div>
-                  ))
-                )}
-              </div>
-            </div>
-            <div className="h-full overflow-hidden px-4 py-4 md:px-6">
-              <div
-                className="screen-credits-track h-full pr-1 text-left"
-                style={{ animationDuration: `${creditsDurationSec}s`, animationIterationCount: "infinite" }}
-              >
-                {results.deny.length === 0 ? (
-                  <div className="pt-8 text-center text-3xl text-[#fde047] md:text-4xl">—</div>
-                ) : (
-                  results.deny.map((v) => (
-                    <div key={v.memberId} className="mb-3 text-left text-2xl font-semibold text-[#fde047] md:text-4xl">
-                      {v.fullName}
+                  </div>
+                  <div className="admin-credits-clip box-border mt-1 min-h-[min(52vh,520px)] w-full flex-1 overflow-hidden text-start md:h-[calc(100vh-15rem)] md:max-h-[calc(100vh-15rem)] md:flex-none">
+                    <div
+                      className="screen-credits-track pr-1"
+                      style={{ animationDuration: `${creditsDurationSec}s`, animationIterationCount: "infinite" }}
+                    >
+                        {approveDisplay.length === 0 ? (
+                          <div className="pt-1 text-3xl text-white/80 md:text-4xl">—</div>
+                        ) : (
+                          approveDisplay.map((v) => (
+                            <div key={v.memberId} className="mb-3 text-2xl font-semibold md:text-4xl">
+                              {v.fullName}
+                            </div>
+                          ))
+                        )}
+                      </div>
                     </div>
-                  ))
-                )}
-              </div>
+                </div>
+              )}
+            </div>
+            <div
+              className={[
+                "flex min-h-0 flex-col gap-1",
+                resultsForUi.anonymous
+                  ? "min-h-[70vh] items-center justify-center text-center"
+                  : "md:min-h-0 md:flex-1",
+              ].join(" ")}
+            >
+              {resultsForUi.anonymous ? (
+                <div className="flex w-full shrink-0 flex-col items-center text-center">
+                  <div className="text-4xl font-bold uppercase text-[#fde047] md:text-6xl lg:text-7xl">Татгалзсан</div>
+                  <div className="mt-1 text-2xl font-semibold text-[#fde047] md:text-4xl lg:text-5xl">
+                    {resultsForUi.denyCount}/{attendance?.eligibleMemberCount ?? resultsForUi.totalVotes}{" "}
+                    {resultsForUi.denyPercent.toFixed(1)}%
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-0 sm:px-3 md:px-8 lg:px-12 xl:px-16 2xl:px-24">
+                  <div className="mx-auto w-full max-w-[26rem] shrink-0">
+                    <div className="text-start leading-tight">
+                      <div className="text-3xl font-bold uppercase text-[#fde047] md:text-5xl">Татгалзсан</div>
+                      <div className="mt-1 text-lg font-semibold leading-tight text-[#fde047] md:text-2xl">
+                        {resultStatsForScreen!.denyCount}/
+                        {attendance?.eligibleMemberCount ?? resultStatsForScreen!.totalVotes}{" "}
+                        {resultStatsForScreen!.denyPercent.toFixed(1)}%
+                      </div>
+                    </div>
+                  </div>
+                  <div className="admin-credits-clip box-border mt-1 min-h-[min(52vh,520px)] w-full flex-1 overflow-hidden text-start md:h-[calc(100vh-15rem)] md:max-h-[calc(100vh-15rem)] md:flex-none">
+                    <div
+                      className="screen-credits-track pr-1"
+                      style={{ animationDuration: `${creditsDurationSec}s`, animationIterationCount: "infinite" }}
+                    >
+                        {denyDisplay.length === 0 ? (
+                          <div className="pt-1 text-3xl text-[#fde047] md:text-4xl">—</div>
+                        ) : (
+                          denyDisplay.map((v) => (
+                            <div key={v.memberId} className="mb-3 text-2xl font-semibold text-[#fde047] md:text-4xl">
+                              {v.fullName}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

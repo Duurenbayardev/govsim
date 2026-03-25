@@ -31,6 +31,8 @@ export async function POST(
   }
   durationSec = Math.min(600, Math.max(5, durationSec));
 
+  const anonymous = body?.anonymous === true;
+
   await connectToDb();
 
   const session = await SessionModel.findOne({ code: sessionCode }).lean();
@@ -57,6 +59,7 @@ export async function POST(
     durationSeconds: durationSec,
     status: "open",
     closedAt: null,
+    anonymous,
   });
 
   return NextResponse.json({ pollId: poll._id.toString(), durationSeconds: durationSec });

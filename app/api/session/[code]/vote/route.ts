@@ -54,6 +54,9 @@ export async function POST(
     return NextResponse.json({ error: "Poll is closed." }, { status: 400 });
   }
 
+  const anonymous = poll.anonymous === true;
+  const fullNameSnapshot = anonymous ? "Нууц" : member.fullName;
+
   await VoteModel.updateOne(
     { pollId: poll._id, memberId: member._id },
     {
@@ -61,7 +64,7 @@ export async function POST(
         pollId: poll._id,
         sessionCode: sessionCode,
         memberId: member._id,
-        fullNameSnapshot: member.fullName,
+        fullNameSnapshot,
         choice,
         votedAt: new Date(),
       },
