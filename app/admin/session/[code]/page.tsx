@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ScreenResponse = {
@@ -135,7 +135,10 @@ function buildRandomSplitDummyVoters(seed: number): {
 function formatDate(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("mn-MN");
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}.${m}.${day}`;
 }
 
 function formatTime(iso: string) {
@@ -152,8 +155,6 @@ function formatTime(iso: string) {
 export default function AdminSessionPage() {
   const params = useParams<{ code: string }>();
   const searchParams = useSearchParams();
-  const router = useRouter();
-
   const code = params.code;
   const adminKey = searchParams.get("key") ?? "";
   const demoParam = searchParams.get("demo");
@@ -165,13 +166,7 @@ export default function AdminSessionPage() {
   const [pollFromScreen, setPollFromScreen] = useState<ScreenResponse["poll"]>(null);
   const [results, setResults] = useState<ScreenResponse["results"]>(null);
   const [attendance, setAttendance] = useState<ScreenResponse["attendance"] | null>(null);
-  const [durationPreset, setDurationPreset] = useState<"10" | "15" | "25" | "custom">("10");
-  const [customDuration, setCustomDuration] = useState("30");
   const [starting, setStarting] = useState(false);
-  const [anonymousVoting, setAnonymousVoting] = useState(false);
-  const [closing, setClosing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [controlsOpen, setControlsOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
@@ -179,9 +174,7 @@ export default function AdminSessionPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [refreshingMembers, setRefreshingMembers] = useState(false);
   const [kickingMemberId, setKickingMemberId] = useState<string | null>(null);
-  const [confirmModal, setConfirmModal] = useState<null | { type: "kick"; memberId: string } | { type: "delete" }>(
-    null
-  );
+  const [confirmModal, setConfirmModal] = useState<null | { type: "kick"; memberId: string }>(null);
   const [tick, setTick] = useState(0);
   const [nowISO, setNowISO] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -263,32 +256,51 @@ export default function AdminSessionPage() {
   }, []);
 
   useEffect(() => {
+    void loadScreen();
+  }, [loadScreen]);
+
+  useEffect(() => {
+    if (!pollFromScreen?.isActive) return;
+    const id = window.setInterval(() => {
+      void loadScreen();
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [pollFromScreen?.isActive, loadScreen]);
+
+  useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      const isSpace = e.code === "Space" || e.key === " " || e.key === "Spacebar";
-      const isRefresh = e.key?.toLowerCase() === "r";
-      if (!isSpace && !isRefresh) return;
+      const key = e.key?.toLowerCase();
+      if (!key || !["q", "a", "s", "e"].includes(key)) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
       const isTypingContext =
         !!target &&
         (target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select");
       if (isTypingContext) return;
-      if (isSpace) {
-        e.preventDefault();
-        setControlsOpen((v) => !v);
+      e.preventDefault();
+      if (key === "q") {
+        setShowQr((v) => !v);
+        return;
       }
-      if (isRefresh) {
-        e.preventDefault();
-        void loadScreen();
+      if (key === "e") {
+        void openMembersPanel();
+        return;
+      }
+      if (key === "a") {
+        void startPoll(true);
+        return;
+      }
+      if (key === "s") {
+        void startPoll(false);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [loadScreen]);
+  }, [pollFromScreen?.isActive, xAdminKey, code, loadMembers]);
 
   useEffect(() => {
     if (!pollFromScreen?.isActive) return;
@@ -393,16 +405,9 @@ export default function AdminSessionPage() {
     };
   }, [showQr, joinUrl]);
 
-  function resolveDurationSeconds(): number {
-    if (durationPreset === "custom") {
-      const n = parseInt(customDuration, 10);
-      return Math.min(600, Math.max(5, Number.isNaN(n) ? 10 : n));
-    }
-    return parseInt(durationPreset, 10);
-  }
-
-  async function startPoll() {
+  async function startPoll(anonymous: boolean) {
     if (!xAdminKey) return;
+    if (pollFromScreen?.isActive) return;
     setStarting(true);
     try {
       const res = await fetch(`/api/admin/sessions/${code}/poll/start`, {
@@ -412,8 +417,8 @@ export default function AdminSessionPage() {
           "X-Admin-Key": xAdminKey,
         },
         body: JSON.stringify({
-          durationSeconds: resolveDurationSeconds(),
-          anonymous: anonymousVoting,
+          durationSeconds: 10,
+          anonymous,
         }),
       });
       if (!res.ok) {
@@ -421,7 +426,6 @@ export default function AdminSessionPage() {
       }
       await res.json().catch(() => null);
       await loadScreen();
-      setControlsOpen(false);
     } finally {
       setStarting(false);
     }
@@ -464,19 +468,14 @@ export default function AdminSessionPage() {
 
   const closePoll = useCallback(async () => {
     if (!xAdminKey) return;
-    setClosing(true);
-    try {
-      const res = await fetch(`/api/admin/sessions/${code}/poll/close`, {
-        method: "POST",
-        headers: { "X-Admin-Key": xAdminKey },
-      });
-      if (!res.ok) {
-        return;
-      }
-      await loadScreen();
-    } finally {
-      setClosing(false);
+    const res = await fetch(`/api/admin/sessions/${code}/poll/close`, {
+      method: "POST",
+      headers: { "X-Admin-Key": xAdminKey },
+    });
+    if (!res.ok) {
+      return;
     }
+    await loadScreen();
   }, [xAdminKey, code, loadScreen]);
 
   useEffect(() => {
@@ -492,39 +491,17 @@ export default function AdminSessionPage() {
     void closePoll();
   }, [activePollId, isPollActive, remaining, closePoll]);
 
-  async function deleteSession() {
-    if (!xAdminKey) return;
-    setDeleting(true);
-    try {
-      const res = await fetch(`/api/admin/sessions/${code}`, {
-        method: "DELETE",
-        headers: { "X-Admin-Key": xAdminKey },
-      });
-      if (!res.ok) {
-        return;
-      }
-      router.push("/admin");
-    } catch {
-    } finally {
-      setDeleting(false);
-    }
-  }
-
   async function onConfirmModalApprove() {
     if (!confirmModal) return;
     const current = confirmModal;
     setConfirmModal(null);
-    if (current.type === "kick") {
-      await kickMember(current.memberId);
-      return;
-    }
-    await deleteSession();
+    await kickMember(current.memberId);
   }
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-[#0069a3] text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.08),transparent_45%)]" />
-      <div className="pointer-events-none absolute left-8 top-6 z-20 rounded-md border border-white/20 bg-[#005180]/35 px-3 py-1 text-lg font-semibold tracking-wide md:left-10 md:top-8 md:text-2xl">
+      <div className="pointer-events-none absolute left-8 top-6 z-20 px-1 py-1 text-lg font-semibold tracking-wide md:left-10 md:top-8 md:text-2xl">
         {nowISO ? formatTime(nowISO) : "--:--:--"}
       </div>
       <button
@@ -535,138 +512,9 @@ export default function AdminSessionPage() {
       >
         {copiedCode ? "Хуулагдлаа" : code}
       </button>
-      <div className="pointer-events-none absolute right-8 top-6 z-20 rounded-md border border-white/20 bg-[#005180]/35 px-3 py-1 text-lg font-semibold tracking-wide md:right-10 md:top-8 md:text-2xl">
-        {nowISO ? formatDate(nowISO) : "--/--/----"}
+      <div className="pointer-events-none absolute right-8 top-6 z-20 px-1 py-1 text-lg font-semibold tracking-wide md:right-10 md:top-8 md:text-2xl">
+        {nowISO ? formatDate(nowISO) : "----.--.--"}
       </div>
-      <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-md border border-white/20 bg-[#005180]/30 px-2 py-1 text-xs text-white/80 md:bottom-6 md:right-6">
-        Space: самбар · R: шинэчлэх
-      </div>
-      {xAdminKey && controlsOpen ? (
-        <div className="absolute bottom-4 left-1/2 z-30 w-[95vw] max-w-5xl -translate-x-1/2 rounded-xl border border-white/30 bg-[#003d60]/70 p-4 backdrop-blur-sm md:bottom-6">
-          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-md border border-white/20 bg-[#005180]/35 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-white/85">
-                Хугацаа
-              </span>
-              <div className="flex flex-wrap gap-2">
-              {(["10", "15", "25"] as const).map((sec) => (
-                <button
-                  key={sec}
-                  type="button"
-                  disabled={!!pollFromScreen?.isActive}
-                  onClick={() => {
-                    setDurationPreset(sec);
-                  }}
-                  className={[
-                    "rounded-md border px-3 py-1.5 text-sm font-semibold text-white",
-                    durationPreset === sec
-                      ? "border-white bg-white/30"
-                      : "border-white/45 bg-[#004f7c]/60 hover:bg-[#005f93]",
-                  ].join(" ")}
-                >
-                  {sec} сек
-                </button>
-              ))}
-              <button
-                type="button"
-                disabled={!!pollFromScreen?.isActive}
-                onClick={() => setDurationPreset("custom")}
-                className={[
-                  "rounded-md border px-3 py-1.5 text-sm font-semibold text-white",
-                  durationPreset === "custom"
-                    ? "border-white bg-white/30"
-                    : "border-white/45 bg-[#004f7c]/60 hover:bg-[#005f93]",
-                ].join(" ")}
-              >
-                Өөрөө
-              </button>
-              </div>
-              {durationPreset === "custom" ? (
-                <label className="inline-flex items-center gap-2">
-                  <span className="text-xs text-white/80">5-600</span>
-                  <input
-                    type="number"
-                    min={5}
-                    max={600}
-                    className="w-24 rounded-md border border-white/45 bg-[#004f7c]/60 px-2 py-1 text-sm text-white outline-none"
-                    value={customDuration}
-                    onChange={(e) => setCustomDuration(e.target.value)}
-                  />
-                </label>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <div className="flex flex-col items-stretch gap-2 sm:items-end">
-                <button
-                  type="button"
-                  disabled={!xAdminKey || starting || !!pollFromScreen?.isActive}
-                  onClick={startPoll}
-                  className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
-                >
-                  {starting ? "Нийтэлж байна…" : "Санал эхлүүлэх"}
-                </button>
-                <label
-                  className={[
-                    "flex items-center gap-3 sm:justify-end",
-                    pollFromScreen?.isActive ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-                  ].join(" ")}
-                  title="Дууссаны дараа санал өгсөн нэрсийг дэлгэцэд харуулахгүй"
-                >
-                  <span className="text-sm font-semibold text-white/95">Нууцлалтай</span>
-                  <div className="relative inline-flex h-7 w-12 shrink-0 items-center">
-                    <input
-                      type="checkbox"
-                      role="switch"
-                      className="peer sr-only"
-                      checked={anonymousVoting}
-                      disabled={!!pollFromScreen?.isActive}
-                      onChange={(e) => setAnonymousVoting(e.target.checked)}
-                    />
-                    <span
-                      className="pointer-events-none absolute inset-0 rounded-full border border-white/45 bg-[#003d60]/90 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-white/50 peer-checked:bg-white/25 peer-disabled:opacity-70"
-                      aria-hidden
-                    />
-                    <span
-                      className="pointer-events-none absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5 peer-disabled:opacity-80"
-                      aria-hidden
-                    />
-                  </div>
-                </label>
-              </div>
-              <button
-                type="button"
-                disabled={!xAdminKey || closing || !pollFromScreen || !pollFromScreen.isActive}
-                onClick={closePoll}
-                className="rounded-md border border-white/60 bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:opacity-60"
-              >
-                {closing ? "Хааж байна…" : "Санал хаах"}
-              </button>
-              <button
-                type="button"
-                onClick={openMembersPanel}
-                className="rounded-md border border-white/50 bg-[#004f7c]/60 px-3 py-2 text-sm font-semibold text-white hover:bg-[#005f93]"
-              >
-                Гишүүд
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowQr(true)}
-                className="rounded-md border border-white/50 bg-[#004f7c]/60 px-3 py-2 text-sm font-semibold text-white hover:bg-[#005f93]"
-              >
-                QR код
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmModal({ type: "delete" })}
-                disabled={deleting}
-                className="rounded-md border border-red-300/70 bg-red-900/45 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/60 disabled:opacity-60"
-              >
-                {deleting ? "…" : "Хуралдаан устгах"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
       {showQr ? (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#003d60]/80 p-6 backdrop-blur-sm">
           <button
@@ -747,9 +595,7 @@ export default function AdminSessionPage() {
           <div className="w-full max-w-md rounded-xl border border-white/30 bg-[#0069a3] p-5 shadow-2xl">
             <h4 className="text-lg font-semibold text-white">Баталгаажуулалт</h4>
             <p className="mt-2 text-sm text-white/90">
-              {confirmModal.type === "delete"
-                ? "Энэ хуралдааныг бүрэн устгах уу? Буцаах боломжгүй."
-                : "Энэ гишүүнийг хуралдаанаас хасах уу?"}
+              Энэ гишүүнийг хуралдаанаас хасах уу?
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button
