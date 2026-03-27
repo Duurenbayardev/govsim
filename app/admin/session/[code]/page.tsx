@@ -2,6 +2,7 @@
 
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ProgressCircle } from "@heroui/react";
 
 type ScreenResponse = {
   sessionCode: string;
@@ -174,6 +175,7 @@ export default function AdminSessionPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [refreshingMembers, setRefreshingMembers] = useState(false);
   const [kickingMemberId, setKickingMemberId] = useState<string | null>(null);
+  const [forceAttendanceView, setForceAttendanceView] = useState(false);
   const [confirmModal, setConfirmModal] = useState<null | { type: "kick"; memberId: string }>(null);
   const [tick, setTick] = useState(0);
   const [nowISO, setNowISO] = useState<string | null>(null);
@@ -274,7 +276,7 @@ export default function AdminSessionPage() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const key = e.key?.toLowerCase();
-      if (!key || !["q", "a", "s", "e"].includes(key)) return;
+      if (!key || !["q", "a", "s", "e", "r", "x"].includes(key)) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
       const isTypingContext =
@@ -290,6 +292,14 @@ export default function AdminSessionPage() {
         void openMembersPanel();
         return;
       }
+      if (key === "r") {
+        void loadScreen();
+        return;
+      }
+      if (key === "x") {
+        setForceAttendanceView(true);
+        return;
+      }
       if (key === "a") {
         void startPoll(true);
         return;
@@ -300,7 +310,7 @@ export default function AdminSessionPage() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [pollFromScreen?.isActive, xAdminKey, code, loadMembers]);
+  }, [pollFromScreen?.isActive, xAdminKey, code, loadMembers, loadScreen]);
 
   useEffect(() => {
     if (!pollFromScreen?.isActive) return;
@@ -425,6 +435,7 @@ export default function AdminSessionPage() {
         return;
       }
       await res.json().catch(() => null);
+      setForceAttendanceView(false);
       await loadScreen();
     } finally {
       setStarting(false);
@@ -507,7 +518,7 @@ export default function AdminSessionPage() {
       <button
         type="button"
         onClick={copyCode}
-        className="absolute left-1/2 top-6 z-30 -translate-x-1/2 rounded-md border border-white/45 bg-[#003d60]/55 px-4 py-1 text-lg font-semibold tracking-[0.2em] text-white hover:bg-[#005180]/80 md:top-8 md:text-2xl"
+        className="absolute left-1/2 top-6 z-30 -translate-x-1/2 px-4 py-1 text-lg font-semibold tracking-[0.2em] text-white md:top-8 md:text-2xl"
         title="Хуулах"
       >
         {copiedCode ? "Хуулагдлаа" : code}
@@ -617,12 +628,23 @@ export default function AdminSessionPage() {
         </div>
       ) : null}
 
-      {!pollFromScreen && !demoMode ? (
+      {forceAttendanceView || (!pollFromScreen && !demoMode) ? (
         <div className="flex min-h-screen items-center justify-center px-6 text-center">
-          <div>
-            <p className="text-4xl font-semibold md:text-6xl">ИРЦ {currentAttendance}/{plannedAttendance}</p>
-            <p className="mt-2 text-2xl font-semibold text-white/85 md:text-4xl">{attendancePercent.toFixed(1)}%</p>
-          </div>
+          <ProgressCircle.Root
+            aria-label="Ирц"
+            value={attendancePercent}
+            maxValue={100}
+            className="relative h-[min(78vw,18rem)] w-[min(78vw,18rem)] md:h-96 md:w-96"
+          >
+            <ProgressCircle.Track className="h-full w-full -rotate-90">
+              <ProgressCircle.TrackCircle className="stroke-white/25" strokeWidth={1.5} />
+              <ProgressCircle.FillCircle className="stroke-[#fde047]" strokeWidth={1.5} />
+            </ProgressCircle.Track>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-4">
+              <p className="text-4xl font-semibold md:text-6xl">ИРЦ {currentAttendance}/{plannedAttendance}</p>
+              <p className="mt-2 text-2xl font-semibold text-white/85 md:text-4xl">{attendancePercent.toFixed(1)}%</p>
+            </div>
+          </ProgressCircle.Root>
         </div>
       ) : pollFromScreen?.isActive ? (
         <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
@@ -663,7 +685,7 @@ export default function AdminSessionPage() {
             >
               {resultsForUi.anonymous ? (
                 <div className="flex w-full shrink-0 flex-col items-center text-center">
-                  <div className="text-4xl font-bold uppercase md:text-6xl lg:text-7xl">Зөвшөөрсөн</div>
+                  <div className="text-5xl font-bold uppercase md:text-7xl lg:text-8xl">Зөвшөөрсөн</div>
                   <div className="mt-1 text-2xl font-semibold md:text-4xl lg:text-5xl">
                     {resultsForUi.approveCount}/{attendance?.eligibleMemberCount ?? resultsForUi.totalVotes}{" "}
                     {resultsForUi.approvePercent.toFixed(1)}%
@@ -673,7 +695,7 @@ export default function AdminSessionPage() {
                 <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-0 sm:px-3 md:px-8 lg:px-12 xl:px-16 2xl:px-24">
                   <div className="mx-auto w-full max-w-[26rem] shrink-0">
                     <div className="text-start leading-tight">
-                      <div className="text-3xl font-bold uppercase md:text-5xl">Зөвшөөрсөн</div>
+                      <div className="text-4xl font-bold uppercase md:text-6xl">Зөвшөөрсөн</div>
                       <div className="mt-1 text-lg font-semibold leading-tight md:text-2xl">
                         {resultStatsForScreen!.approveCount}/
                         {attendance?.eligibleMemberCount ?? resultStatsForScreen!.totalVotes}{" "}
@@ -710,7 +732,7 @@ export default function AdminSessionPage() {
             >
               {resultsForUi.anonymous ? (
                 <div className="flex w-full shrink-0 flex-col items-center text-center">
-                  <div className="text-4xl font-bold uppercase text-[#fde047] md:text-6xl lg:text-7xl">Татгалзсан</div>
+                  <div className="text-5xl font-bold uppercase text-[#fde047] md:text-7xl lg:text-8xl">Татгалзсан</div>
                   <div className="mt-1 text-2xl font-semibold text-[#fde047] md:text-4xl lg:text-5xl">
                     {resultsForUi.denyCount}/{attendance?.eligibleMemberCount ?? resultsForUi.totalVotes}{" "}
                     {resultsForUi.denyPercent.toFixed(1)}%
@@ -720,7 +742,7 @@ export default function AdminSessionPage() {
                 <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-0 sm:px-3 md:px-8 lg:px-12 xl:px-16 2xl:px-24">
                   <div className="mx-auto w-full max-w-[26rem] shrink-0">
                     <div className="text-start leading-tight">
-                      <div className="text-3xl font-bold uppercase text-[#fde047] md:text-5xl">Татгалзсан</div>
+                      <div className="text-4xl font-bold uppercase text-[#fde047] md:text-6xl">Татгалзсан</div>
                       <div className="mt-1 text-lg font-semibold leading-tight text-[#fde047] md:text-2xl">
                         {resultStatsForScreen!.denyCount}/
                         {attendance?.eligibleMemberCount ?? resultStatsForScreen!.totalVotes}{" "}
