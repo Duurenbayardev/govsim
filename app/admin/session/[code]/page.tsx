@@ -499,7 +499,7 @@ export default function AdminSessionPage() {
   }
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-[#0069a3] text-white">
+    <div className="oswald-ui relative min-h-screen w-full overflow-hidden bg-[#0069a3] text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.08),transparent_45%)]" />
       <div className="pointer-events-none absolute left-8 top-6 z-20 px-1 py-1 text-lg font-semibold tracking-wide md:left-10 md:top-8 md:text-2xl">
         {nowISO ? formatTime(nowISO) : "--:--:--"}
@@ -636,7 +636,7 @@ export default function AdminSessionPage() {
               <div className="mb-6 text-3xl font-semibold tracking-wide text-white md:text-5xl">
                 Ирц {currentAttendance}/{plannedAttendance} {attendancePercent.toFixed(1)}%
               </div>
-              <div className="font-mono text-[10rem] font-bold leading-none tabular-nums text-[#fde047] md:text-[16rem]">
+              <div className="text-[10rem] font-bold leading-none tabular-nums text-[#fde047] md:text-[16rem]">
                 {remaining ?? 0}
               </div>
               <div className="mt-6 rounded-md border border-white/20 bg-[#005180]/30 px-4 py-2 text-sm text-white/90">

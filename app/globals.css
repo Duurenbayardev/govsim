@@ -104,6 +104,37 @@ body {
   letter-spacing: -0.02em;
 }
 
+/* Oswald variable font utility classes (200..700) */
+.oswald-ui {
+  font-family: "Oswald", sans-serif;
+  font-optical-sizing: auto;
+  font-style: normal;
+}
+
+.oswald-200 {
+  font-weight: 200;
+}
+
+.oswald-300 {
+  font-weight: 300;
+}
+
+.oswald-400 {
+  font-weight: 400;
+}
+
+.oswald-500 {
+  font-weight: 500;
+}
+
+.oswald-600 {
+  font-weight: 600;
+}
+
+.oswald-700 {
+  font-weight: 700;
+}
+
 /* Admin results credit roll: parent `.admin-credits-clip` must have `container-type: size` and a height.
    Start offset uses 100cqh so the list enters from the bottom of the clip (not the middle of the viewport). */
 @keyframes screen-credits-roll {

@@ -31,6 +31,14 @@ export default function RootLayout({
       lang="mn"
       className={`${sourceSans.variable} ${sourceSerif.variable} h-full antialiased`}
     >
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Oswald:wght@200..700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body className="min-h-full bg-background font-sans text-foreground">
         <GovChrome>{children}</GovChrome>
       </body>
