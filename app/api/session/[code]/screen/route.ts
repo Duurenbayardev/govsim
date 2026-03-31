@@ -3,6 +3,8 @@ import { connectToDb } from "@/lib/mongodb";
 import { getPollDurationSeconds } from "@/lib/pollDuration";
 import { MemberModel, PollModel, SessionModel, VoteModel } from "@/lib/models";
 
+const AUTO_DENY_GRACE_MS = 3000;
+
 function isValidCode(code: string) {
   return /^\d{6}$/.test(code);
 }
@@ -33,7 +35,11 @@ export async function GET(
   let poll = await PollModel.findOne({ sessionCode: sessionCode }).sort({ startedAt: -1 }).lean();
   const now = new Date();
 
-  if (poll && poll.status === "open" && now.getTime() >= new Date(poll.endsAt).getTime()) {
+  if (
+    poll &&
+    poll.status === "open" &&
+    now.getTime() >= new Date(poll.endsAt).getTime() + AUTO_DENY_GRACE_MS
+  ) {
     await PollModel.updateOne(
       { _id: poll._id, status: "open" },
       { $set: { status: "closed", closedAt: now, endsAt: now } }

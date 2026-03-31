@@ -7,7 +7,7 @@ function isValidCode(code: string) {
   return /^\d{6}$/.test(code);
 }
 
-const MEMBER_NAME_PATTERN = /^[А-ЯӨҮЁ][а-яөүё]+\.[А-ЯӨҮЁ]$/u;
+const MEMBER_NAME_PATTERN = /^[А-ЯӨҮЁ][а-яөүё]+(?:-[А-ЯӨҮЁ][а-яөүё]+)*\.[А-ЯӨҮЁ]$/u;
 
 export async function POST(req: Request) {
   try {
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Session code must be 6 digits." }, { status: 400 });
   }
   if (!MEMBER_NAME_PATTERN.test(fullName)) {
-    return NextResponse.json({ error: "Нэрийг Батмөнх.А хэлбэрээр оруулна уу." }, { status: 400 });
+    return NextResponse.json({ error: "Нэрийг Батмөнх.А эсвэл Энх-Ариун.О хэлбэрээр оруулна уу." }, { status: 400 });
   }
 
   const session = await SessionModel.findOne({ code }).lean();

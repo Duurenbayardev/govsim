@@ -8,7 +8,7 @@ function normalizeSessionCode(code: string) {
   return digits.padStart(6, "0");
 }
 
-const MEMBER_NAME_PATTERN = /^[А-ЯӨҮЁ][а-яөүё]+\.[А-ЯӨҮЁ]$/u;
+const MEMBER_NAME_PATTERN = /^[А-ЯӨҮЁ][а-яөүё]+(?:-[А-ЯӨҮЁ][а-яөүё]+)*\.[А-ЯӨҮЁ]$/u;
 
 export default function JoinPage() {
   const router = useRouter();
@@ -41,7 +41,7 @@ export default function JoinPage() {
       return;
     }
     if (!MEMBER_NAME_PATTERN.test(name)) {
-      setError("Нэрийг Батмөнх.А хэлбэрээр оруулна уу.");
+      setError("Нэрийг Батмөнх.А эсвэл Энх-Ариун.О хэлбэрээр оруулна уу.");
       return;
     }
 
@@ -120,12 +120,12 @@ export default function JoinPage() {
           <span className="gov-label">Бүтэн нэр (албан ёсны)</span>
           <input
             className="gov-input mt-2 w-full px-3 py-2.5"
-            placeholder="Жишээ: Батмөнх.А"
+            placeholder="Жишээ: Батмөнх.А эсвэл Энх-Ариун.О"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             autoComplete="name"
           />
-          <p className="mt-1 text-xs text-white/75">Формат: Овог.Н (ж: Батмөнх.А)</p>
+          <p className="mt-1 text-xs text-white/75">Формат: Овог.Н (ж: Батмөнх.А, Энх-Ариун.О)</p>
         </label>
 
         {error ? (
