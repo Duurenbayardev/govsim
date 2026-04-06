@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import mongoose from "mongoose";
-import { connectToDb } from "@/lib/mongodb";
-import { MemberModel, SessionModel } from "@/lib/models";
+import { supabase } from "@/lib/supabase";
 
 export async function POST(
   req: Request,
@@ -18,23 +16,23 @@ export async function POST(
   if (!adminKey) {
     return NextResponse.json({ error: "Missing admin key." }, { status: 401 });
   }
-  if (!mongoose.Types.ObjectId.isValid(memberIdStr)) {
-    return NextResponse.json({ error: "Invalid member id." }, { status: 400 });
-  }
 
-  await connectToDb();
+  const { data: session } = await supabase
+    .from("sessions")
+    .select("admin_key")
+    .eq("code", sessionCode)
+    .maybeSingle();
 
-  const session = await SessionModel.findOne({ code: sessionCode }).lean();
-  if (!session || session.adminKey !== adminKey) {
+  if (!session || session.admin_key !== adminKey) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
   const now = new Date();
-  await MemberModel.findOneAndUpdate(
-    { _id: new mongoose.Types.ObjectId(memberIdStr), sessionCode },
-    { $set: { kickedAt: now } }
-  );
+  await supabase
+    .from("members")
+    .update({ kicked_at: now.toISOString() })
+    .eq("id", memberIdStr)
+    .eq("session_code", sessionCode);
 
   return NextResponse.json({ ok: true });
 }
-

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { connectToDb } from "@/lib/mongodb";
-import { MemberModel, PollModel, SessionModel, VoteModel } from "@/lib/models";
+import { supabase } from "@/lib/supabase";
 
 export async function DELETE(
   req: Request,
@@ -17,22 +16,18 @@ export async function DELETE(
     return NextResponse.json({ error: "Missing admin key." }, { status: 401 });
   }
 
-  await connectToDb();
+  const { data: session } = await supabase
+    .from("sessions")
+    .select("admin_key")
+    .eq("code", sessionCode)
+    .maybeSingle();
 
-  const session = await SessionModel.findOne({ code: sessionCode }).lean();
-  if (!session || session.adminKey !== adminKey) {
+  if (!session || session.admin_key !== adminKey) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const polls = await PollModel.find({ sessionCode }).select("_id").lean();
-  const pollIds = polls.map((p) => p._id);
-
-  if (pollIds.length > 0) {
-    await VoteModel.deleteMany({ pollId: { $in: pollIds } });
-  }
-  await PollModel.deleteMany({ sessionCode });
-  await MemberModel.deleteMany({ sessionCode });
-  await SessionModel.deleteOne({ code: sessionCode });
+  // Foreign Key-үүд CASCADE тохиргоотой бол зөвхөн session устгахад хангалттай.
+  await supabase.from("sessions").delete().eq("code", sessionCode);
 
   return NextResponse.json({ ok: true });
 }

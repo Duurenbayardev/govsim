@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { connectToDb } from "@/lib/mongodb";
-import { PollModel, SessionModel } from "@/lib/models";
+import { supabase } from "@/lib/supabase";
 
-const COUNTDOWN_SETUP_LEAD_MS = 1200;
+const COUNTDOWN_SETUP_LEAD_MS = 3500;
 
 export async function POST(
   req: Request,
@@ -33,35 +32,43 @@ export async function POST(
 
   const anonymous = body?.anonymous === true;
 
-  await connectToDb();
+  const { data: session } = await supabase
+    .from("sessions")
+    .select("admin_key")
+    .eq("code", sessionCode)
+    .maybeSingle();
 
-  const session = await SessionModel.findOne({ code: sessionCode }).lean();
-  if (!session || session.adminKey !== adminKey) {
+  if (!session || session.admin_key !== adminKey) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
   const now = new Date();
-  // Keep server voting window aligned with UI flow:
-  // admin shows a short "setup" phase before countdown starts.
   const endsAt = new Date(now.getTime() + durationSec * 1000 + COUNTDOWN_SETUP_LEAD_MS);
 
   // Ensure only one poll is open at a time.
-  await PollModel.updateMany(
-    { sessionCode, status: "open" },
-    { $set: { status: "closed", closedAt: now, endsAt: now } }
-  );
+  await supabase
+    .from("polls")
+    .update({ 
+      status: "closed", 
+      closed_at: now.toISOString(), 
+      ends_at: now.toISOString() 
+    })
+    .eq("session_code", sessionCode)
+    .eq("status", "open");
 
-  const poll = await PollModel.create({
-    sessionCode,
+  const { data: poll } = await supabase
+    .from("polls")
+    .insert({
+    session_code: sessionCode,
     problem: "Санал хураалт",
-    startedAt: now,
-    endsAt,
-    durationSeconds: durationSec,
+    started_at: now.toISOString(),
+    ends_at: endsAt.toISOString(),
+    duration_seconds: durationSec,
     status: "open",
-    closedAt: null,
     anonymous,
-  });
+  })
+  .select()
+  .single();
 
-  return NextResponse.json({ pollId: poll._id.toString(), durationSeconds: durationSec });
+  return NextResponse.json({ pollId: poll?.id, durationSeconds: durationSec });
 }
-

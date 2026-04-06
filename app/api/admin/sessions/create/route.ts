@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { connectToDb } from "@/lib/mongodb";
-import { SessionModel } from "@/lib/models";
+import { supabase } from "@/lib/supabase";
 import crypto from "crypto";
 
 function generateSessionCode() {
@@ -13,7 +12,13 @@ function generateAdminKey() {
 }
 
 export async function POST(req: Request) {
-  await connectToDb();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: "Системийн тохиргоо (Supabase) хийгдээгүй байна. Төслийн .env файлыг шалгана уу." },
+      { status: 500 }
+    );
+  }
+
   const body = await req.json().catch(() => null);
   const rawPlanned = body?.plannedAttendeeCount;
   const plannedAttendeeCount =
@@ -26,18 +31,38 @@ export async function POST(req: Request) {
   for (let i = 0; i < 8; i++) {
     const code = generateSessionCode();
     const adminKey = generateAdminKey();
-    try {
-      const session = await SessionModel.create({ code, adminKey, plannedAttendeeCount });
-      return NextResponse.json({
-        code: session.code,
-        adminKey: session.adminKey,
-        plannedAttendeeCount: session.plannedAttendeeCount ?? 0,
-      });
-    } catch {
-      // Likely duplicate code; retry.
+
+    const { data, error } = await supabase
+      .from("sessions")
+      .insert({
+        code,
+        admin_key: adminKey,
+        planned_attendee_count: plannedAttendeeCount,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      // PostgreSQL error code '23505' is a unique_violation. 
+      // If this happens, we continue the loop to try a new random code.
+      if (error.code === '23505') {
+        continue;
+      }
+
+      // For any other error (schema mismatch, connection, etc.), return it immediately.
+      console.error("Supabase error:", error);
+      return NextResponse.json(
+        { error: error.message, details: error.details },
+        { status: 500 }
+      );
     }
+
+    return NextResponse.json({
+      code: data.code,
+      adminKey: data.admin_key,
+      plannedAttendeeCount: data.planned_attendee_count ?? 0,
+    });
   }
 
   return NextResponse.json({ error: "Failed to create session. Try again." }, { status: 500 });
 }
-

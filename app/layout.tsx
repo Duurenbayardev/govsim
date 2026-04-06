@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { Source_Sans_3, Source_Serif_4 } from "next/font/google";
+import { Roboto, Source_Sans_3, Source_Serif_4 } from "next/font/google";
 import { GovChrome } from "@/components/gov-chrome";
 import "./globals.css";
 
-const sourceSans = Source_Sans_3({
+const sourceSans = Roboto({
   variable: "--font-sans-gov",
   subsets: ["latin", "cyrillic"],
   display: "swap",
 });
 
-const sourceSerif = Source_Serif_4({
+const sourceSerif = Roboto({
   variable: "--font-serif-gov",
   subsets: ["latin", "cyrillic"],
   display: "swap",

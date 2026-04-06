@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { connectToDb } from "@/lib/mongodb";
-import { MemberModel, VoteModel } from "@/lib/models";
+import { supabase } from "@/lib/supabase";
 
 function isValidCode(code: string) {
   return /^\d{6}$/.test(code);
@@ -27,15 +26,18 @@ export async function DELETE(
     return NextResponse.json({ error: "Missing authorization token." }, { status: 401 });
   }
 
-  await connectToDb();
+  const { data: member } = await supabase
+    .from("members")
+    .select("id")
+    .eq("session_code", sessionCode)
+    .eq("token", token)
+    .maybeSingle();
 
-  const member = await MemberModel.findOne({ sessionCode, token }).lean();
   if (!member) {
     return NextResponse.json({ error: "Member not found." }, { status: 404 });
   }
 
-  await VoteModel.deleteMany({ memberId: member._id });
-  await MemberModel.deleteOne({ _id: member._id });
+  await supabase.from("members").delete().eq("id", member.id);
 
   return NextResponse.json({ ok: true });
 }

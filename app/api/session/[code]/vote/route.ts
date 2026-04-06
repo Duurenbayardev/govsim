@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { connectToDb } from "@/lib/mongodb";
-import { MemberModel, PollModel, VoteModel } from "@/lib/models";
+import { supabase } from "@/lib/supabase";
 
 function isValidCode(code: string) {
   return /^\d{6}$/.test(code);
@@ -33,45 +32,51 @@ export async function POST(
     return NextResponse.json({ error: "Invalid vote choice." }, { status: 400 });
   }
 
-  await connectToDb();
+  // 1. Member шалгах
+  const { data: member, error: memberError } = await supabase
+    .from("members")
+    .select("*")
+    .eq("session_code", sessionCode)
+    .eq("token", token)
+    .single();
 
-  const member = await MemberModel.findOne({ sessionCode: sessionCode, token }).lean();
-  if (!member || member.kickedAt) {
+  if (memberError || !member || member.kicked_at) {
     return NextResponse.json({ error: "Member not found or kicked." }, { status: 401 });
   }
 
-  const poll = await PollModel.findOne({ sessionCode: sessionCode, status: "open" })
-    .sort({ startedAt: -1 })
-    .lean();
+  // 2. Идэвхтэй poll хайх
+  const { data: poll, error: pollError } = await supabase
+    .from("polls")
+    .select("*")
+    .eq("session_code", sessionCode)
+    .eq("status", "open")
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  if (!poll) {
+  if (pollError || !poll) {
     return NextResponse.json({ error: "No active poll." }, { status: 400 });
   }
 
-  const now = Date.now();
-  const endsAt = new Date(poll.endsAt).getTime();
+  // 3. Хугацаа шалгах
+  const now = new Date();
+  const endsAt = new Date(poll.ends_at);
   if (now >= endsAt) {
     return NextResponse.json({ error: "Poll is closed." }, { status: 400 });
   }
 
   const anonymous = poll.anonymous === true;
-  const fullNameSnapshot = anonymous ? "Нууц" : member.fullName;
+  const fullNameSnapshot = anonymous ? "Нууц" : member.full_name;
 
-  await VoteModel.updateOne(
-    { pollId: poll._id, memberId: member._id },
-    {
-      $set: {
-        pollId: poll._id,
-        sessionCode: sessionCode,
-        memberId: member._id,
-        fullNameSnapshot,
-        choice,
-        votedAt: new Date(),
-      },
-    },
-    { upsert: true }
-  );
+  // 4. Санал бүртгэх (Upsert)
+  await supabase.from("votes").upsert({
+    poll_id: poll.id,
+    session_code: sessionCode,
+    member_id: member.id,
+    full_name_snapshot: fullNameSnapshot,
+    choice,
+    voted_at: now.toISOString(),
+  }, { onConflict: "poll_id, member_id" });
 
   return NextResponse.json({ myVote: choice });
 }
-
