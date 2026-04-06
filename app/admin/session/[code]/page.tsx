@@ -421,6 +421,14 @@ export default function AdminSessionPage() {
         return;
       }
 
+      if (
+        ["a", "s", "f"].includes(key) &&
+        pollFromScreen?.isActive
+      ) {
+        e.preventDefault();
+        return;
+      }
+
       e.preventDefault();
 
       switch (key) {
