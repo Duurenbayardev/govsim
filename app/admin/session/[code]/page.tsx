@@ -178,6 +178,8 @@ export default function AdminSessionPage() {
   const [attendance, setAttendance] = useState<ScreenResponse["attendance"] | null>(null);
   const [isSpeechMode, setIsSpeechMode] = useState(false);
   const [speechFeedbackOpen, setSpeechFeedbackOpen] = useState(true);
+  /** After a poll in speech mode, prefer Санал хүсэлт vs дүгнэлт дэлгэц (F/D) */
+  const [adminPreferFeedbackView, setAdminPreferFeedbackView] = useState(false);
   const [adminActionBusy, setAdminActionBusy] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -487,6 +489,15 @@ export default function AdminSessionPage() {
     };
   }, [resultsForUi, demoMode, approveDisplay.length, denyDisplay.length]);
 
+  const showFeedbackScreen =
+    isSpeechMode && (!resultsForUi || adminPreferFeedbackView);
+  const showResultsScreen =
+    !!resultsForUi && !(isSpeechMode && adminPreferFeedbackView);
+
+  useEffect(() => {
+    if (!resultsForUi) setAdminPreferFeedbackView(false);
+  }, [resultsForUi]);
+
   // Гараа өргөсөн гишүүдийг хугацаагаар нь эрэмбэлж харуулах
   const raisedHandsQueue = useMemo(() => {
     const raised = members
@@ -599,7 +610,7 @@ export default function AdminSessionPage() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const key = e.key?.toLowerCase();
-      if (!key || !["q", "a", "s", "e", "r", "x", "f"].includes(key)) return;
+      if (!key || !["q", "a", "s", "e", "r", "x", "f", "d"].includes(key)) return;
 
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
@@ -613,10 +624,7 @@ export default function AdminSessionPage() {
         return;
       }
 
-      if (
-        ["a", "s", "f"].includes(key) &&
-        pollFromScreen?.isActive
-      ) {
+      if (["a", "s"].includes(key) && pollFromScreen?.isActive) {
         e.preventDefault();
         return;
       }
@@ -628,10 +636,27 @@ export default function AdminSessionPage() {
           setShowQr((v) => !v);
           break;
         case "f":
-          if (isSpeechMode) {
+          if (
+            isSpeechMode &&
+            resultsForUi &&
+            !showCountdown &&
+            !adminPreferFeedbackView
+          ) {
+            setAdminPreferFeedbackView(true);
+          } else if (isSpeechMode) {
             void toggleSpeechFeedbackOpen();
           } else {
             void toggleSpeechMode();
+          }
+          break;
+        case "d":
+          if (
+            isSpeechMode &&
+            resultsForUi &&
+            !showCountdown &&
+            adminPreferFeedbackView
+          ) {
+            setAdminPreferFeedbackView(false);
           }
           break;
         case "e":
@@ -667,6 +692,9 @@ export default function AdminSessionPage() {
     syncScreen,
     isSpeechMode,
     toggleSpeechFeedbackOpen,
+    resultsForUi,
+    showCountdown,
+    adminPreferFeedbackView,
   ]);
 
   /** One full scroll cycle (seconds). Short lists stay readable; long lists cap so the roll doesn’t crawl. */
@@ -710,6 +738,7 @@ export default function AdminSessionPage() {
     if (pollFromScreen?.isActive) return;
     if (!beginAdminShortcutAction()) return;
     // Clear previous results and poll state immediately to prevent "flash"
+    setAdminPreferFeedbackView(false);
     setResults(null);
     try {
       const res = await fetch(`/api/admin/sessions/${code}/poll/start`, {
@@ -968,7 +997,51 @@ export default function AdminSessionPage() {
 
           </div>
         </div>
-      ) : resultsForUi ? (
+      ) : showFeedbackScreen ? (
+        <div className="flex h-[100dvh] flex-col items-center px-6 pt-24 animate-in fade-in duration-700">
+          <div className="mb-8 flex flex-col items-center text-center shrink-0">
+            <div className="text-lg font-bold uppercase tracking-[0.3em] text-[#fde047] md:text-xl">Санал хүсэлт</div>
+            <span
+              role="status"
+              aria-live="polite"
+              className={[
+                "mt-3 inline-flex rounded-full border px-5 py-2 text-sm font-bold uppercase tracking-wider",
+                "transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out",
+                speechFeedbackOpen
+                  ? "border-[#fde047] bg-[#fde047]/20 text-[#fde047] shadow-[0_0_28px_-6px_rgba(253,224,71,0.45)]"
+                  : "border-white/40 bg-white/[0.08] text-white/85 shadow-none",
+              ].join(" ")}
+            >
+              {speechFeedbackOpen ? "Нээлттэй" : "Хаалттай"}
+            </span>
+            <div className="mt-4 flex items-baseline gap-3">
+              <span className="text-5xl font-bold text-white leading-none md:text-6xl">
+                <RollingNumber value={raisedHandsQueue.length} />
+              </span>
+              <span className="text-lg font-medium text-white/50 uppercase tracking-widest md:text-xl">хүн</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col w-full max-w-4xl divide-y divide-white/10 border-t border-white/10 overflow-y-auto pb-10 custom-scrollbar">
+            {raisedHandsQueue.length === 0 ? (
+              <div className="text-center text-2xl text-white/30 font-light py-20 tracking-wide">
+                Гар өргөсөн гишүүн байхгүй байна.
+              </div>
+            ) : (
+              raisedHandsQueue.map((m, i) => (
+                <div
+                  key={m.id}
+                  className="flex items-center py-4 px-2 md:py-5 md:px-4 animate-in fade-in slide-in-from-left-4 duration-500"
+                  style={{ animationDelay: `${i * 100}ms` }}
+                >
+                  <span className="w-12 shrink-0 text-2xl font-bold text-[#fde047]/80 md:w-16 md:text-3xl">{i + 1}.</span>
+                  <span className="text-xl font-semibold tracking-tight text-white md:text-3xl">{m.fullName}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      ) : showResultsScreen ? (
         <div className="flex h-[100dvh] flex-col px-6 pb-6 pt-24 md:px-10 md:pt-28 overflow-hidden">
           {demoMode && !results ? (
             <div className="mb-2 text-center text-xs font-semibold uppercase tracking-wide text-white/75 shrink-0">
@@ -1071,50 +1144,6 @@ export default function AdminSessionPage() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      ) : isSpeechMode ? (
-        <div className="flex h-[100dvh] flex-col items-center px-6 pt-24 animate-in fade-in duration-700">
-          <div className="mb-8 flex flex-col items-center text-center shrink-0">
-            <div className="text-lg font-bold uppercase tracking-[0.3em] text-[#fde047] md:text-xl">Санал хүсэлт</div>
-            <span
-              role="status"
-              aria-live="polite"
-              className={[
-                "mt-3 inline-flex rounded-full border px-5 py-2 text-sm font-bold uppercase tracking-wider",
-                "transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out",
-                speechFeedbackOpen
-                  ? "border-[#fde047] bg-[#fde047]/20 text-[#fde047] shadow-[0_0_28px_-6px_rgba(253,224,71,0.45)]"
-                  : "border-white/40 bg-white/[0.08] text-white/85 shadow-none",
-              ].join(" ")}
-            >
-              {speechFeedbackOpen ? "Нээлттэй" : "Хаалттай"}
-            </span>
-            <div className="mt-4 flex items-baseline gap-3">
-              <span className="text-5xl font-bold text-white leading-none md:text-6xl">
-                <RollingNumber value={raisedHandsQueue.length} />
-              </span>
-              <span className="text-lg font-medium text-white/50 uppercase tracking-widest md:text-xl">хүн</span>
-            </div>
-          </div>
-
-          <div className="flex flex-col w-full max-w-4xl divide-y divide-white/10 border-t border-white/10 overflow-y-auto pb-10 custom-scrollbar">
-            {raisedHandsQueue.length === 0 ? (
-              <div className="text-center text-2xl text-white/30 font-light py-20 tracking-wide">
-                Гар өргөсөн гишүүн байхгүй байна.
-              </div>
-            ) : (
-              raisedHandsQueue.map((m, i) => (
-                <div
-                  key={m.id}
-                  className="flex items-center py-4 px-2 md:py-5 md:px-4 animate-in fade-in slide-in-from-left-4 duration-500"
-                  style={{ animationDelay: `${i * 100}ms` }}
-                >
-                  <span className="w-12 shrink-0 text-2xl font-bold text-[#fde047]/80 md:w-16 md:text-3xl">{i + 1}.</span>
-                  <span className="text-xl font-semibold tracking-tight text-white md:text-3xl">{m.fullName}</span>
-                </div>
-              ))
-            )}
           </div>
         </div>
       ) : !pollFromScreen && !demoMode ? (
