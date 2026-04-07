@@ -18,6 +18,7 @@ type PollResponse = {
   member: { fullName: string } | null;
   handRaisedAt: string | null;
   isSpeechMode?: boolean;
+  speechFeedbackOpen?: boolean;
   results?: {
     totalVotes: number;
     approveCount: number;
@@ -80,6 +81,9 @@ export default function SessionPage() {
     if (t.includes("missing authorization token")) {
       return "Нэвтрэлт хүчингүй байна. Дахин нэвтэрнэ үү.";
     }
+    if (t.includes("feedback is closed")) {
+      return "Санал хүсэлт түр хаалттай байна.";
+    }
     return "Үйлдэл амжилтгүй боллоо.";
   }
 
@@ -115,6 +119,8 @@ export default function SessionPage() {
         } : null,
         handRaisedAt: raw.handRaisedAt ?? raw.hand_raised_at ?? null,
         isSpeechMode: !!(raw.isSpeechMode ?? raw.is_speech_mode),
+        speechFeedbackOpen:
+          (raw.speechFeedbackOpen ?? raw.speech_feedback_open) !== false,
       };
 
       setData(json);
@@ -191,12 +197,23 @@ export default function SessionPage() {
           table: "sessions",
           filter: `code=eq.${code}`,
         },
-        (payload:any) => {
-          const next = payload.new as any;
+        (payload: any) => {
+          const next = payload.new as Record<string, unknown> | null;
+          if (!next) {
+            void fetchData();
+            return;
+          }
           const speechActive = !!(next.is_speech_mode ?? next.isSpeechMode);
-          setData((prev) => (prev ? { ...prev, isSpeechMode: speechActive } : prev));
-          
-          // Only trigger full fetch if other session data changed
+          const rawOpen = next.speech_feedback_open;
+          setData((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  isSpeechMode: speechActive,
+                  ...(typeof rawOpen === "boolean" ? { speechFeedbackOpen: rawOpen } : {}),
+                }
+              : prev
+          );
           void fetchData();
         }
       )
@@ -264,6 +281,10 @@ export default function SessionPage() {
 
   async function toggleHand() {
     if (!token) return;
+    if (!data?.isSpeechMode || data.speechFeedbackOpen === false) {
+      triggerVoteToast("Санал хүсэлт түр хаалттай байна.", "error");
+      return;
+    }
     setHandLoading(true);
     try {
       const res = await fetch(`/api/session/${code}/raise-hand`, {
@@ -273,7 +294,11 @@ export default function SessionPage() {
         },
       });
       if (!res.ok) {
-        triggerVoteToast("Үйлдэл амжилтгүй боллоо.", "error");
+        const text = await res.text().catch(() => "");
+        triggerVoteToast(toFriendlyMessage(text || ""), "error");
+        if (text.toLowerCase().includes("feedback is closed")) {
+          setData((prev) => (prev ? { ...prev, speechFeedbackOpen: false } : prev));
+        }
         return;
       }
       const json = await res.json();
@@ -332,7 +357,7 @@ export default function SessionPage() {
   return (
     <div className="mx-auto flex min-h-[100dvh] w-full max-w-5xl flex-col px-5 py-6 md:px-8">
       {/* Raise Hand Floating Button */}
-      {token && data?.isSpeechMode && (
+      {token && data?.isSpeechMode && data?.speechFeedbackOpen !== false && (
         <button
           type="button"
           onClick={toggleHand}

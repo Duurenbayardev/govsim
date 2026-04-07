@@ -11,6 +11,10 @@ export type ScreenResponse = {
   sessionCode: string;
   nowISO: string;
   isSpeechMode?: boolean;
+  /** Санал хүсэлтийн горимд гар өргөхийг зөвшөөрөх эсэх (F-ээр нээлттэй/хаалттай) */
+  speechFeedbackOpen?: boolean;
+  /** DB-д speech_feedback_open багана байвал sync-ээр нөхөн тохируулна */
+  speechFeedbackInDb?: boolean;
   poll: {
     id: string;
     problem: string;
@@ -72,6 +76,11 @@ export async function loadSessionScreenState(
   }
 
   const plannedAttendeeCount = Math.max(0, Number(session.planned_attendee_count ?? 0));
+  const sess = session as Record<string, unknown>;
+  const speechFeedbackInDb = Object.prototype.hasOwnProperty.call(sess, "speech_feedback_open");
+  const speechFeedbackOpen = speechFeedbackInDb
+    ? (sess.speech_feedback_open as boolean) !== false
+    : true;
 
   let { data: poll } = await client
     .from("polls")
@@ -145,6 +154,8 @@ export async function loadSessionScreenState(
         sessionCode,
         nowISO: now.toISOString(),
         isSpeechMode: !!session.is_speech_mode,
+        speechFeedbackOpen,
+        speechFeedbackInDb,
         poll: null,
         results: null,
         attendance: {
@@ -246,6 +257,8 @@ export async function loadSessionScreenState(
         sessionCode,
         nowISO: now.toISOString(),
         isSpeechMode: !!session.is_speech_mode,
+        speechFeedbackOpen,
+        speechFeedbackInDb,
         poll: pollPayload,
         results: null,
         attendance,
@@ -259,6 +272,8 @@ export async function loadSessionScreenState(
       sessionCode,
       nowISO: now.toISOString(),
       isSpeechMode: !!session.is_speech_mode,
+      speechFeedbackOpen,
+      speechFeedbackInDb,
       poll: pollPayload,
       results: {
         totalVotes,

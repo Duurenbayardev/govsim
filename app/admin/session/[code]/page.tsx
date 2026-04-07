@@ -177,6 +177,7 @@ export default function AdminSessionPage() {
   const [results, setResults] = useState<ScreenResponse["results"]>(null);
   const [attendance, setAttendance] = useState<ScreenResponse["attendance"] | null>(null);
   const [isSpeechMode, setIsSpeechMode] = useState(false);
+  const [speechFeedbackOpen, setSpeechFeedbackOpen] = useState(true);
   const [adminActionBusy, setAdminActionBusy] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -229,6 +230,13 @@ export default function AdminSessionPage() {
     setResults(json.results);
     setAttendance(json.attendance ?? null);
     setIsSpeechMode(!!(json.isSpeechMode ?? (json as any).is_speech_mode));
+    setSpeechFeedbackOpen((prev) => {
+      const j = json as { speechFeedbackOpen?: boolean; speechFeedbackInDb?: boolean };
+      if (j.speechFeedbackInDb) {
+        return j.speechFeedbackOpen !== false;
+      }
+      return prev;
+    });
     const p = json.poll;
     if (p?.isActive) {
       if (receivePollIdRef.current !== p.id) {
@@ -405,67 +413,6 @@ export default function AdminSessionPage() {
   }, []);
 
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const key = e.key?.toLowerCase();
-      if (!key || !["q", "a", "s", "e", "r", "x", "f"].includes(key)) return;
-
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName?.toLowerCase();
-      const isTypingContext =
-        !!target &&
-        (target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select");
-      if (isTypingContext) return;
-
-      if (adminActionBusyRef.current) {
-        e.preventDefault();
-        return;
-      }
-
-      if (
-        ["a", "s", "f"].includes(key) &&
-        pollFromScreen?.isActive
-      ) {
-        e.preventDefault();
-        return;
-      }
-
-      e.preventDefault();
-
-      switch (key) {
-        case "q":
-          setShowQr((v) => !v);
-          break;
-        case "f":
-          void toggleSpeechMode();
-          break;
-        case "e":
-          void openMembersPanel();
-          break;
-        case "r":
-          void syncScreen();
-          break;
-        case "x":
-          if (isSpeechMode) {
-            // Speech mode үед X дарвал speech mode-г унтраа
-            void toggleSpeechMode();
-          } else {
-            setForceAttendanceView(true);
-          }
-          break;
-        case "a":
-          void startPoll(true);
-          break;
-        case "s":
-          void startPoll(false);
-          break;
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [pollFromScreen?.isActive, xAdminKey, code, loadMembers, syncScreen, isSpeechMode]);
-
-  useEffect(() => {
     if (!pollFromScreen?.isActive) return;
     const id = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
@@ -602,8 +549,14 @@ export default function AdminSessionPage() {
         // Дэлгэцийг шинэчлэх
         await syncScreen();
       } else {
-        const error = await response.json();
-        console.error("Failed to toggle speech mode:", error);
+        const text = await response.text().catch(() => "");
+        let detail: unknown = text;
+        try {
+          detail = text ? JSON.parse(text) : {};
+        } catch {
+          /* keep raw text */
+        }
+        console.error("Failed to toggle speech mode:", response.status, detail);
       }
     } catch (err) {
       console.error("Failed to toggle speech mode", err);
@@ -611,6 +564,110 @@ export default function AdminSessionPage() {
       endAdminShortcutAction();
     }
   }
+
+  const toggleSpeechFeedbackOpen = useCallback(async () => {
+    if (!xAdminKey) return;
+    if (!beginAdminShortcutAction()) return;
+    const next = !speechFeedbackOpen;
+    try {
+      const response = await fetch(`/api/admin/sessions/${code}/speech-feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Admin-Key": xAdminKey },
+        body: JSON.stringify({ open: next }),
+      });
+      if (response.ok) {
+        const j = (await response.json().catch(() => null)) as {
+          speechFeedbackOpen?: boolean;
+        } | null;
+        if (typeof j?.speechFeedbackOpen === "boolean") {
+          setSpeechFeedbackOpen(j.speechFeedbackOpen);
+        } else {
+          setSpeechFeedbackOpen(next);
+        }
+        await syncScreen();
+      } else {
+        const t = await response.text().catch(() => "");
+        console.error("speech-feedback failed:", response.status, t);
+      }
+    } catch (err) {
+      console.error("Failed to toggle speech feedback:", err);
+    } finally {
+      endAdminShortcutAction();
+    }
+  }, [xAdminKey, code, speechFeedbackOpen, syncScreen]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const key = e.key?.toLowerCase();
+      if (!key || !["q", "a", "s", "e", "r", "x", "f"].includes(key)) return;
+
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isTypingContext =
+        !!target &&
+        (target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select");
+      if (isTypingContext) return;
+
+      if (adminActionBusyRef.current) {
+        e.preventDefault();
+        return;
+      }
+
+      if (
+        ["a", "s", "f"].includes(key) &&
+        pollFromScreen?.isActive
+      ) {
+        e.preventDefault();
+        return;
+      }
+
+      e.preventDefault();
+
+      switch (key) {
+        case "q":
+          setShowQr((v) => !v);
+          break;
+        case "f":
+          if (isSpeechMode) {
+            void toggleSpeechFeedbackOpen();
+          } else {
+            void toggleSpeechMode();
+          }
+          break;
+        case "e":
+          void openMembersPanel();
+          break;
+        case "r":
+          void syncScreen();
+          break;
+        case "x":
+          if (isSpeechMode) {
+            // Speech mode үед X дарвал speech mode-г унтраа
+            void toggleSpeechMode();
+          } else {
+            setForceAttendanceView(true);
+          }
+          break;
+        case "a":
+          void startPoll(true);
+          break;
+        case "s":
+          void startPoll(false);
+          break;
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    pollFromScreen?.isActive,
+    xAdminKey,
+    code,
+    loadMembers,
+    syncScreen,
+    isSpeechMode,
+    toggleSpeechFeedbackOpen,
+  ]);
 
   /** One full scroll cycle (seconds). Short lists stay readable; long lists cap so the roll doesn’t crawl. */
   const creditsDurationSec = useMemo(() => {
@@ -915,7 +972,20 @@ export default function AdminSessionPage() {
         <div className="flex h-[100dvh] flex-col items-center px-6 pt-24 animate-in fade-in duration-700">
           <div className="mb-8 flex flex-col items-center text-center shrink-0">
             <div className="text-lg font-bold uppercase tracking-[0.3em] text-[#fde047] md:text-xl">Санал хүсэлт</div>
-            <div className="mt-2 flex items-baseline gap-3">
+            <span
+              role="status"
+              aria-live="polite"
+              className={[
+                "mt-3 inline-flex rounded-full border px-5 py-2 text-sm font-bold uppercase tracking-wider",
+                "transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out",
+                speechFeedbackOpen
+                  ? "border-[#fde047] bg-[#fde047]/20 text-[#fde047] shadow-[0_0_28px_-6px_rgba(253,224,71,0.45)]"
+                  : "border-white/40 bg-white/[0.08] text-white/85 shadow-none",
+              ].join(" ")}
+            >
+              {speechFeedbackOpen ? "Нээлттэй" : "Хаалттай"}
+            </span>
+            <div className="mt-4 flex items-baseline gap-3">
               <span className="text-5xl font-bold text-white leading-none md:text-6xl">
                 <RollingNumber value={raisedHandsQueue.length} />
               </span>

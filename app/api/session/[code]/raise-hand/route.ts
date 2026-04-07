@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { loadSessionSpeechFlags } from "@/lib/loadSessionSpeechFlags";
 
 function isValidCode(code: string) {
   return /^\d{6}$/.test(code);
@@ -27,19 +28,20 @@ export async function POST(
     return NextResponse.json({ error: "Missing authorization token." }, { status: 401 });
   }
 
-  // Session-ийн speech mode шалгах
-  const { data: session, error: sessionError } = await supabase
-    .from("sessions")
-    .select("is_speech_mode")
-    .eq("code", sessionCode)
-    .single();
-
-  if (sessionError || !session) {
+  const speech = await loadSessionSpeechFlags(sessionCode);
+  if (!speech) {
     return NextResponse.json({ error: "Session not found." }, { status: 404 });
   }
 
-  if (!session.is_speech_mode) {
+  if (!speech.isSpeechMode) {
     return NextResponse.json({ error: "Speech mode is not active." }, { status: 403 });
+  }
+
+  if (!speech.speechFeedbackOpen) {
+    return NextResponse.json(
+      { error: "Feedback is closed." },
+      { status: 403 }
+    );
   }
 
   // Member шалгах

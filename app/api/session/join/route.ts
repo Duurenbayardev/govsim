@@ -1,26 +1,25 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import crypto from "crypto";
+import { parseJoinPayload } from "@/lib/mongolianJoinName";
 
 function isValidCode(code: string) {
   return /^\d{6}$/.test(code);
 }
-
-const MEMBER_NAME_PATTERN = /^[А-ЯӨҮЁ][а-яөүё]+(?:-[А-ЯӨҮЁ][а-яөүё]+)*\.[А-ЯӨҮЁ]$/u;
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
 
-    const code = String(body.code ?? "");
-    const fullName = String(body.fullName ?? "").trim();
+    const parsed = parseJoinPayload(body);
+    if ("error" in parsed) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    const { code, fullName } = parsed;
 
     if (!isValidCode(code)) {
       return NextResponse.json({ error: "Session code must be 6 digits." }, { status: 400 });
-    }
-    if (!MEMBER_NAME_PATTERN.test(fullName)) {
-      return NextResponse.json({ error: "Нэрийг Батмөнх.А эсвэл Энх-Ариун.О хэлбэрээр оруулна уу." }, { status: 400 });
     }
 
     const { data: session, error: sessionError } = await supabase

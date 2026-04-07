@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getPollDurationSeconds } from "@/lib/pollDuration";
+import { loadSessionSpeechFlags } from "@/lib/loadSessionSpeechFlags";
 
 function isValidCode(code: string) {
   return /^\d{6}$/.test(code);
@@ -39,18 +40,12 @@ export async function GET(
     return NextResponse.json({ error: "Member not found or kicked." }, { status: 401 });
   }
 
-  // 2. Session-ийн is_speech_mode утгыг авах
-  const { data: session, error: sessionError } = await supabase
-    .from("sessions")
-    .select("is_speech_mode")
-    .eq("code", sessionCode)
-    .maybeSingle();
-
-  if (sessionError) {
-    console.error("Session fetch error:", sessionError);
+  // 2. Session — speech_feedback_open багана байхгүй бол fallback
+  const speech = await loadSessionSpeechFlags(sessionCode);
+  if (!speech) {
+    return NextResponse.json({ error: "Session not found." }, { status: 404 });
   }
-
-  const isSpeechMode = session?.is_speech_mode ?? false;
+  const { isSpeechMode, speechFeedbackOpen } = speech;
 
   const now = new Date();
   // 3. Хамгийн сүүлийн poll хайх
@@ -69,6 +64,7 @@ export async function GET(
       member: { fullName: member.full_name },
       handRaisedAt: member.hand_raised_at ?? null,
       isSpeechMode,
+      speechFeedbackOpen,
     });
   }
 
@@ -125,6 +121,7 @@ export async function GET(
     member: { fullName: member.full_name },
     handRaisedAt: member.hand_raised_at ?? null,
     isSpeechMode,
+    speechFeedbackOpen,
     results,
   });
 }
