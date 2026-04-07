@@ -968,50 +968,6 @@ export default function AdminSessionPage() {
 
           </div>
         </div>
-      ) : isSpeechMode ? (
-        <div className="flex h-[100dvh] flex-col items-center px-6 pt-24 animate-in fade-in duration-700">
-          <div className="mb-8 flex flex-col items-center text-center shrink-0">
-            <div className="text-lg font-bold uppercase tracking-[0.3em] text-[#fde047] md:text-xl">Санал хүсэлт</div>
-            <span
-              role="status"
-              aria-live="polite"
-              className={[
-                "mt-3 inline-flex rounded-full border px-5 py-2 text-sm font-bold uppercase tracking-wider",
-                "transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out",
-                speechFeedbackOpen
-                  ? "border-[#fde047] bg-[#fde047]/20 text-[#fde047] shadow-[0_0_28px_-6px_rgba(253,224,71,0.45)]"
-                  : "border-white/40 bg-white/[0.08] text-white/85 shadow-none",
-              ].join(" ")}
-            >
-              {speechFeedbackOpen ? "Нээлттэй" : "Хаалттай"}
-            </span>
-            <div className="mt-4 flex items-baseline gap-3">
-              <span className="text-5xl font-bold text-white leading-none md:text-6xl">
-                <RollingNumber value={raisedHandsQueue.length} />
-              </span>
-              <span className="text-lg font-medium text-white/50 uppercase tracking-widest md:text-xl">хүн</span>
-            </div>
-          </div>
-
-          <div className="flex flex-col w-full max-w-4xl divide-y divide-white/10 border-t border-white/10 overflow-y-auto pb-10 custom-scrollbar">
-            {raisedHandsQueue.length === 0 ? (
-              <div className="text-center text-2xl text-white/30 font-light py-20 tracking-wide">
-                Гар өргөсөн гишүүн байхгүй байна.
-              </div>
-            ) : (
-              raisedHandsQueue.map((m, i) => (
-                <div
-                  key={m.id}
-                  className="flex items-center py-4 px-2 md:py-5 md:px-4 animate-in fade-in slide-in-from-left-4 duration-500"
-                  style={{ animationDelay: `${i * 100}ms` }}
-                >
-                  <span className="w-12 shrink-0 text-2xl font-bold text-[#fde047]/80 md:w-16 md:text-3xl">{i + 1}.</span>
-                  <span className="text-xl font-semibold tracking-tight text-white md:text-3xl">{m.fullName}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
       ) : resultsForUi ? (
         <div className="flex h-[100dvh] flex-col px-6 pb-6 pt-24 md:px-10 md:pt-28 overflow-hidden">
           {demoMode && !results ? (
@@ -1115,6 +1071,50 @@ export default function AdminSessionPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      ) : isSpeechMode ? (
+        <div className="flex h-[100dvh] flex-col items-center px-6 pt-24 animate-in fade-in duration-700">
+          <div className="mb-8 flex flex-col items-center text-center shrink-0">
+            <div className="text-lg font-bold uppercase tracking-[0.3em] text-[#fde047] md:text-xl">Санал хүсэлт</div>
+            <span
+              role="status"
+              aria-live="polite"
+              className={[
+                "mt-3 inline-flex rounded-full border px-5 py-2 text-sm font-bold uppercase tracking-wider",
+                "transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out",
+                speechFeedbackOpen
+                  ? "border-[#fde047] bg-[#fde047]/20 text-[#fde047] shadow-[0_0_28px_-6px_rgba(253,224,71,0.45)]"
+                  : "border-white/40 bg-white/[0.08] text-white/85 shadow-none",
+              ].join(" ")}
+            >
+              {speechFeedbackOpen ? "Нээлттэй" : "Хаалттай"}
+            </span>
+            <div className="mt-4 flex items-baseline gap-3">
+              <span className="text-5xl font-bold text-white leading-none md:text-6xl">
+                <RollingNumber value={raisedHandsQueue.length} />
+              </span>
+              <span className="text-lg font-medium text-white/50 uppercase tracking-widest md:text-xl">хүн</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col w-full max-w-4xl divide-y divide-white/10 border-t border-white/10 overflow-y-auto pb-10 custom-scrollbar">
+            {raisedHandsQueue.length === 0 ? (
+              <div className="text-center text-2xl text-white/30 font-light py-20 tracking-wide">
+                Гар өргөсөн гишүүн байхгүй байна.
+              </div>
+            ) : (
+              raisedHandsQueue.map((m, i) => (
+                <div
+                  key={m.id}
+                  className="flex items-center py-4 px-2 md:py-5 md:px-4 animate-in fade-in slide-in-from-left-4 duration-500"
+                  style={{ animationDelay: `${i * 100}ms` }}
+                >
+                  <span className="w-12 shrink-0 text-2xl font-bold text-[#fde047]/80 md:w-16 md:text-3xl">{i + 1}.</span>
+                  <span className="text-xl font-semibold tracking-tight text-white md:text-3xl">{m.fullName}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       ) : !pollFromScreen && !demoMode ? (
