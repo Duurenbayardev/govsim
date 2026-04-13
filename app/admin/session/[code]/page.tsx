@@ -22,12 +22,12 @@ type ActiveDisplayPhase = "setup" | "countdown";
 
 const DEMO_VOTER_COUNT = 50;
 const SPEAKER_SLOT_DURATION_MS = 60_000;
-/** Speaker overlay: play a tick each second while the displayed countdown is in this range (inclusive). Set to 20 for prod (last 20s only); 60 = full slot for testing. */
-const SPEAKER_COUNTDOWN_TICK_LAST_SECONDS = 60;
+/** Remaining ms above this → 1 tick/s; at or below → 2 ticks/s (last 20s of a 60s slot). */
+const SPEAKER_TICK_ACCEL_MS = 20_000;
 
 let speakerTickAudioContext: AudioContext | null = null;
 
-/** Wall-clock style tick: short mechanical strike + low resonant body + faint ring. */
+/** Light “tsk-tsk” escapement: two tiny band-limited clicks, no low woody body. */
 function playSpeakerCountdownTick() {
   if (typeof window === "undefined") return;
   const AC =
@@ -40,60 +40,36 @@ function playSpeakerCountdownTick() {
     }
     const ctx = speakerTickAudioContext;
     void ctx.resume();
-    const t = ctx.currentTime;
+    const t0 = ctx.currentTime;
 
     const master = ctx.createGain();
-    master.gain.value = 0.72;
+    master.gain.value = 0.58;
     master.connect(ctx.destination);
 
-    // Gear / escapement–like click: band-limited noise burst
-    const nSamples = Math.floor(ctx.sampleRate * 0.07);
-    const noiseBuf = ctx.createBuffer(1, nSamples, ctx.sampleRate);
-    const nd = noiseBuf.getChannelData(0);
-    for (let i = 0; i < nSamples; i++) nd[i] = Math.random() * 2 - 1;
-    const noise = ctx.createBufferSource();
-    noise.buffer = noiseBuf;
-    const clickFilter = ctx.createBiquadFilter();
-    clickFilter.type = "bandpass";
-    clickFilter.frequency.setValueAtTime(580, t);
-    clickFilter.Q.setValueAtTime(2.2, t);
-    const nGain = ctx.createGain();
-    nGain.gain.setValueAtTime(0, t);
-    nGain.gain.linearRampToValueAtTime(0.2, t + 0.001);
-    nGain.gain.exponentialRampToValueAtTime(0.0008, t + 0.038);
-    noise.connect(clickFilter);
-    clickFilter.connect(nGain);
-    nGain.connect(master);
-    noise.start(t);
-    noise.stop(t + 0.065);
+    function microTsk(start: number, centerHz: number) {
+      const n = Math.floor(ctx.sampleRate * 0.018);
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.setValueAtTime(centerHz, start);
+      bp.Q.setValueAtTime(3.2, start);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, start);
+      g.gain.linearRampToValueAtTime(0.17, start + 0.0006);
+      g.gain.exponentialRampToValueAtTime(0.0005, start + 0.012);
+      src.connect(bp);
+      bp.connect(g);
+      g.connect(master);
+      src.start(start);
+      src.stop(start + 0.015);
+    }
 
-    // Heavy pendulum / wooden case resonance (low triangle, pitch falls)
-    const body = ctx.createOscillator();
-    body.type = "triangle";
-    body.frequency.setValueAtTime(158, t);
-    body.frequency.exponentialRampToValueAtTime(92, t + 0.22);
-    const bGain = ctx.createGain();
-    bGain.gain.setValueAtTime(0, t);
-    bGain.gain.linearRampToValueAtTime(0.32, t + 0.008);
-    bGain.gain.exponentialRampToValueAtTime(0.0008, t + 0.34);
-    body.connect(bGain);
-    bGain.connect(master);
-    body.start(t);
-    body.stop(t + 0.36);
-
-    // Long-case “hollow” partial
-    const ring = ctx.createOscillator();
-    ring.type = "sine";
-    ring.frequency.setValueAtTime(285, t);
-    ring.frequency.exponentialRampToValueAtTime(195, t + 0.12);
-    const rGain = ctx.createGain();
-    rGain.gain.setValueAtTime(0, t);
-    rGain.gain.linearRampToValueAtTime(0.12, t + 0.004);
-    rGain.gain.exponentialRampToValueAtTime(0.0008, t + 0.24);
-    ring.connect(rGain);
-    rGain.connect(master);
-    ring.start(t);
-    ring.stop(t + 0.26);
+    microTsk(t0, 820);
+    microTsk(t0 + 0.032, 640);
   } catch {
     /* autoplay / AudioContext unsupported */
   }
@@ -605,18 +581,35 @@ export default function AdminSessionPage() {
     return () => window.clearInterval(id);
   }, [speakerFocus]);
 
-  const lastSpeakerTickSecondRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!speakerFocus) {
-      lastSpeakerTickSecondRef.current = null;
-      return;
-    }
-    const sec = speakerSecondsLeft;
-    if (sec == null || sec < 1 || sec > SPEAKER_COUNTDOWN_TICK_LAST_SECONDS) return;
-    if (lastSpeakerTickSecondRef.current === sec) return;
-    lastSpeakerTickSecondRef.current = sec;
-    playSpeakerCountdownTick();
-  }, [speakerFocus, speakerSecondsLeft]);
+    if (!speakerFocus) return;
+    const endsAt = speakerFocus.endsAt;
+    let lastSlowBucket: number | null = null;
+    let lastFastBucket: number | null = null;
+
+    const id = window.setInterval(() => {
+      const msLeft = endsAt - Date.now();
+      if (msLeft <= 0) return;
+
+      if (msLeft > SPEAKER_TICK_ACCEL_MS) {
+        const b = Math.floor(msLeft / 1000);
+        if (lastSlowBucket !== b) {
+          lastSlowBucket = b;
+          lastFastBucket = null;
+          playSpeakerCountdownTick();
+        }
+      } else {
+        const b = Math.floor(msLeft / 500);
+        if (lastFastBucket !== b) {
+          lastFastBucket = b;
+          lastSlowBucket = null;
+          playSpeakerCountdownTick();
+        }
+      }
+    }, 80);
+
+    return () => window.clearInterval(id);
+  }, [speakerFocus]);
 
   // Гараа өргөсөн гишүүдийг хугацаагаар нь эрэмбэлж харуулах
   const raisedHandsQueue = useMemo(() => {
