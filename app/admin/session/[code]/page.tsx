@@ -535,21 +535,9 @@ export default function AdminSessionPage() {
   const speakerSecondsLeft = useMemo(() => {
     if (!speakerFocus) return null;
     void speakerSecondPulse;
-    return Math.max(0, Math.ceil((speakerFocus.endsAt - Date.now()) / 1000));
+    const m = Math.max(0, Math.floor(speakerFocus.endsAt - Date.now()));
+    return Math.max(0, Math.floor((m + 999) / 1000));
   }, [speakerFocus, speakerSecondPulse]);
-
-  useEffect(() => {
-    if (!speakerFocus) return;
-    const endsAt = speakerFocus.endsAt;
-    const id = window.setInterval(() => {
-      if (Date.now() >= endsAt) {
-        setSpeakerFocus(null);
-        return;
-      }
-      setSpeakerSecondPulse((p) => p + 1);
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [speakerFocus]);
 
   useEffect(() => {
     if (!speakerFocus) {
@@ -565,29 +553,45 @@ export default function AdminSessionPage() {
       speakerTickFastBucketRef.current = null;
     }
 
-    const id = window.setInterval(() => {
-      const msLeft = endsAt - Date.now();
-      if (msLeft <= 0) return;
+    function msLeftInt() {
+      return Math.max(0, Math.floor(endsAt - Date.now()));
+    }
 
-      if (msLeft > SPEAKER_TICK_ACCEL_MS) {
-        // Same as on-screen second: ceil — floor(60000/1000) drops 60→59 in 1ms and double-ticks
-        const b = Math.ceil(msLeft / 1000);
+    /** Integer “displayed second” / half-step — avoids float ceil() flipping 59↔60 at boundaries. */
+    function tryPlaySpeakerTick() {
+      const m = msLeftInt();
+      if (m <= 0) return;
+      if (m > SPEAKER_TICK_ACCEL_MS) {
+        const b = Math.floor((m + 999) / 1000);
         if (speakerTickSlowBucketRef.current !== b) {
           speakerTickSlowBucketRef.current = b;
           speakerTickFastBucketRef.current = null;
           playSpeakerCountdownTick();
         }
       } else {
-        const b = Math.ceil(msLeft / 500);
+        const b = Math.floor((m + 499) / 500);
         if (speakerTickFastBucketRef.current !== b) {
           speakerTickFastBucketRef.current = b;
           speakerTickSlowBucketRef.current = null;
           playSpeakerCountdownTick();
         }
       }
-    }, 80);
+    }
 
-    return () => window.clearInterval(id);
+    const pulseId = window.setInterval(() => {
+      if (Date.now() >= endsAt) {
+        setSpeakerFocus(null);
+        return;
+      }
+      setSpeakerSecondPulse((p) => p + 1);
+    }, 1000);
+
+    const audioId = window.setInterval(tryPlaySpeakerTick, 250);
+
+    return () => {
+      window.clearInterval(pulseId);
+      window.clearInterval(audioId);
+    };
   }, [speakerFocus]);
 
   // Гараа өргөсөн гишүүдийг хугацаагаар нь эрэмбэлж харуулах
