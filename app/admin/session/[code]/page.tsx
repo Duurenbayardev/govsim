@@ -24,54 +24,20 @@ const DEMO_VOTER_COUNT = 50;
 const SPEAKER_SLOT_DURATION_MS = 60_000;
 /** Remaining ms above this → 1 tick/s; at or below → 2 ticks/s (last 20s of a 60s slot). */
 const SPEAKER_TICK_ACCEL_MS = 20_000;
+/** Single-hit tick sample in `public/` (one clack per play, not a tick+tock in one file). */
+const SPEAKER_TICK_AUDIO = "/tick.mp3";
 
-let speakerTickAudioContext: AudioContext | null = null;
-
-/** Light “tsk-tsk” escapement: two tiny band-limited clicks, no low woody body. */
+/** Plays that sample once. New `Audio` each time so the last-20s 2× rate can overlap short clips. */
 function playSpeakerCountdownTick() {
   if (typeof window === "undefined") return;
-  const AC =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AC) return;
   try {
-    if (!speakerTickAudioContext || speakerTickAudioContext.state === "closed") {
-      speakerTickAudioContext = new AC();
-    }
-    const ctx = speakerTickAudioContext;
-    void ctx.resume();
-    const t0 = ctx.currentTime;
-
-    const master = ctx.createGain();
-    master.gain.value = 0.58;
-    master.connect(ctx.destination);
-
-    function microTsk(start: number, centerHz: number) {
-      const n = Math.floor(ctx.sampleRate * 0.018);
-      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      const bp = ctx.createBiquadFilter();
-      bp.type = "bandpass";
-      bp.frequency.setValueAtTime(centerHz, start);
-      bp.Q.setValueAtTime(3.2, start);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0, start);
-      g.gain.linearRampToValueAtTime(0.17, start + 0.0006);
-      g.gain.exponentialRampToValueAtTime(0.0005, start + 0.012);
-      src.connect(bp);
-      bp.connect(g);
-      g.connect(master);
-      src.start(start);
-      src.stop(start + 0.015);
-    }
-
-    microTsk(t0, 820);
-    microTsk(t0 + 0.032, 640);
+    const a = new Audio(SPEAKER_TICK_AUDIO);
+    a.volume = 0.88;
+    void a.play().catch(() => {
+      /* autoplay / decode */
+    });
   } catch {
-    /* autoplay / AudioContext unsupported */
+    /* ignore */
   }
 }
 
