@@ -21,6 +21,83 @@ type AdminMember = {
 type ActiveDisplayPhase = "setup" | "countdown";
 
 const DEMO_VOTER_COUNT = 50;
+const SPEAKER_SLOT_DURATION_MS = 60_000;
+/** Speaker overlay: play a tick each second while the displayed countdown is in this range (inclusive). Set to 20 for prod (last 20s only); 60 = full slot for testing. */
+const SPEAKER_COUNTDOWN_TICK_LAST_SECONDS = 60;
+
+let speakerTickAudioContext: AudioContext | null = null;
+
+/** Wall-clock style tick: short mechanical strike + low resonant body + faint ring. */
+function playSpeakerCountdownTick() {
+  if (typeof window === "undefined") return;
+  const AC =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AC) return;
+  try {
+    if (!speakerTickAudioContext || speakerTickAudioContext.state === "closed") {
+      speakerTickAudioContext = new AC();
+    }
+    const ctx = speakerTickAudioContext;
+    void ctx.resume();
+    const t = ctx.currentTime;
+
+    const master = ctx.createGain();
+    master.gain.value = 0.72;
+    master.connect(ctx.destination);
+
+    // Gear / escapement–like click: band-limited noise burst
+    const nSamples = Math.floor(ctx.sampleRate * 0.07);
+    const noiseBuf = ctx.createBuffer(1, nSamples, ctx.sampleRate);
+    const nd = noiseBuf.getChannelData(0);
+    for (let i = 0; i < nSamples; i++) nd[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuf;
+    const clickFilter = ctx.createBiquadFilter();
+    clickFilter.type = "bandpass";
+    clickFilter.frequency.setValueAtTime(580, t);
+    clickFilter.Q.setValueAtTime(2.2, t);
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(0, t);
+    nGain.gain.linearRampToValueAtTime(0.2, t + 0.001);
+    nGain.gain.exponentialRampToValueAtTime(0.0008, t + 0.038);
+    noise.connect(clickFilter);
+    clickFilter.connect(nGain);
+    nGain.connect(master);
+    noise.start(t);
+    noise.stop(t + 0.065);
+
+    // Heavy pendulum / wooden case resonance (low triangle, pitch falls)
+    const body = ctx.createOscillator();
+    body.type = "triangle";
+    body.frequency.setValueAtTime(158, t);
+    body.frequency.exponentialRampToValueAtTime(92, t + 0.22);
+    const bGain = ctx.createGain();
+    bGain.gain.setValueAtTime(0, t);
+    bGain.gain.linearRampToValueAtTime(0.32, t + 0.008);
+    bGain.gain.exponentialRampToValueAtTime(0.0008, t + 0.34);
+    body.connect(bGain);
+    bGain.connect(master);
+    body.start(t);
+    body.stop(t + 0.36);
+
+    // Long-case “hollow” partial
+    const ring = ctx.createOscillator();
+    ring.type = "sine";
+    ring.frequency.setValueAtTime(285, t);
+    ring.frequency.exponentialRampToValueAtTime(195, t + 0.12);
+    const rGain = ctx.createGain();
+    rGain.gain.setValueAtTime(0, t);
+    rGain.gain.linearRampToValueAtTime(0.12, t + 0.004);
+    rGain.gain.exponentialRampToValueAtTime(0.0008, t + 0.24);
+    ring.connect(rGain);
+    rGain.connect(master);
+    ring.start(t);
+    ring.stop(t + 0.26);
+  } catch {
+    /* autoplay / AudioContext unsupported */
+  }
+}
 
 /** Shown when ?demo=1 and there are no API results yet (layout / credits testing) */
 const DEMO_PREVIEW_RESULTS: NonNullable<ScreenResponse["results"]> = {
@@ -180,6 +257,13 @@ export default function AdminSessionPage() {
   const [speechFeedbackOpen, setSpeechFeedbackOpen] = useState(true);
   /** After a poll in speech mode, prefer Санал хүсэлт vs дүгнэлт дэлгэц (F/D) */
   const [adminPreferFeedbackView, setAdminPreferFeedbackView] = useState(false);
+  /** Санал хүсэлт: нэр дээр дарахад 60 сек үеийн тооллого (зөвхөн дэлгэц) */
+  const [speakerFocus, setSpeakerFocus] = useState<{
+    memberId: string;
+    fullName: string;
+    endsAt: number;
+  } | null>(null);
+  const [speakerSecondPulse, setSpeakerSecondPulse] = useState(0);
   const [adminActionBusy, setAdminActionBusy] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -495,8 +579,44 @@ export default function AdminSessionPage() {
     !!resultsForUi && !(isSpeechMode && adminPreferFeedbackView);
 
   useEffect(() => {
+    if (!showFeedbackScreen) setSpeakerFocus(null);
+  }, [showFeedbackScreen]);
+
+  useEffect(() => {
     if (!resultsForUi) setAdminPreferFeedbackView(false);
   }, [resultsForUi]);
+
+  const speakerSecondsLeft = useMemo(() => {
+    if (!speakerFocus) return null;
+    void speakerSecondPulse;
+    return Math.max(0, Math.ceil((speakerFocus.endsAt - Date.now()) / 1000));
+  }, [speakerFocus, speakerSecondPulse]);
+
+  useEffect(() => {
+    if (!speakerFocus) return;
+    const endsAt = speakerFocus.endsAt;
+    const id = window.setInterval(() => {
+      if (Date.now() >= endsAt) {
+        setSpeakerFocus(null);
+        return;
+      }
+      setSpeakerSecondPulse((p) => p + 1);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [speakerFocus]);
+
+  const lastSpeakerTickSecondRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!speakerFocus) {
+      lastSpeakerTickSecondRef.current = null;
+      return;
+    }
+    const sec = speakerSecondsLeft;
+    if (sec == null || sec < 1 || sec > SPEAKER_COUNTDOWN_TICK_LAST_SECONDS) return;
+    if (lastSpeakerTickSecondRef.current === sec) return;
+    lastSpeakerTickSecondRef.current = sec;
+    playSpeakerCountdownTick();
+  }, [speakerFocus, speakerSecondsLeft]);
 
   // Гараа өргөсөн гишүүдийг хугацаагаар нь эрэмбэлж харуулах
   const raisedHandsQueue = useMemo(() => {
@@ -610,7 +730,7 @@ export default function AdminSessionPage() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const key = e.key?.toLowerCase();
-      if (!key || !["q", "a", "s", "e", "r", "x", "f", "d"].includes(key)) return;
+      if (!key || !["q", "a", "s", "e", "r", "x", "f", "d", "escape"].includes(key)) return;
 
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
@@ -618,6 +738,12 @@ export default function AdminSessionPage() {
         !!target &&
         (target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select");
       if (isTypingContext) return;
+
+      if (speakerFocus && (key === "x" || key === "escape")) {
+        e.preventDefault();
+        setSpeakerFocus(null);
+        return;
+      }
 
       if (adminActionBusyRef.current) {
         e.preventDefault();
@@ -695,6 +821,7 @@ export default function AdminSessionPage() {
     resultsForUi,
     showCountdown,
     adminPreferFeedbackView,
+    speakerFocus,
   ]);
 
   /** One full scroll cycle (seconds). Short lists stay readable; long lists cap so the roll doesn’t crawl. */
@@ -959,6 +1086,28 @@ export default function AdminSessionPage() {
         </div>
       ) : null}
 
+      {speakerFocus && speakerSecondsLeft != null ? (
+        <div className="absolute inset-0 z-[35] flex flex-col items-center justify-center bg-[#0069a3] px-6 animate-in fade-in zoom-in duration-300">
+          <button
+            type="button"
+            onClick={() => setSpeakerFocus(null)}
+            className="absolute right-4 top-4 rounded-md border border-white/55 bg-[#005180]/70 px-3 py-2 text-sm font-semibold text-white hover:bg-[#00659d] md:right-6 md:top-6"
+          >
+            Хаах (X)
+          </button>
+          <p className="mb-6 max-w-[min(100%,48rem)] text-center text-2xl font-semibold leading-tight text-white md:text-4xl lg:text-5xl">
+            {speakerFocus.fullName}
+          </p>
+          <div
+            key={speakerSecondsLeft}
+            className="text-[min(40vw,14rem)] font-bold leading-none tabular-nums text-[#fde047] animate-in zoom-in fade-in duration-200 md:text-[min(28vw,20rem)]"
+          >
+            <RollingNumber value={speakerSecondsLeft} />
+          </div>
+          <p className="mt-8 text-sm font-medium uppercase tracking-[0.25em] text-white/50 md:text-base">секунд</p>
+        </div>
+      ) : null}
+
       {showCountdown ? (
         <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center animate-in fade-in zoom-in duration-1000 ease-out">
           <div className="mb-2 text-3xl font-semibold tracking-wide text-white md:text-5xl">
@@ -1029,14 +1178,22 @@ export default function AdminSessionPage() {
               </div>
             ) : (
               raisedHandsQueue.map((m, i) => (
-                <div
+                <button
                   key={m.id}
-                  className="flex items-center py-4 px-2 md:py-5 md:px-4 animate-in fade-in slide-in-from-left-4 duration-500"
+                  type="button"
+                  onClick={() =>
+                    setSpeakerFocus({
+                      memberId: m.id,
+                      fullName: m.fullName,
+                      endsAt: Date.now() + SPEAKER_SLOT_DURATION_MS,
+                    })
+                  }
+                  className="flex w-full items-center py-4 px-2 text-left transition-colors hover:bg-white/[0.06] focus-visible:bg-white/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fde047]/80 md:py-5 md:px-4 animate-in fade-in slide-in-from-left-4 duration-500"
                   style={{ animationDelay: `${i * 100}ms` }}
                 >
                   <span className="w-12 shrink-0 text-2xl font-bold text-[#fde047]/80 md:w-16 md:text-3xl">{i + 1}.</span>
                   <span className="text-xl font-semibold tracking-tight text-white md:text-3xl">{m.fullName}</span>
-                </div>
+                </button>
               ))
             )}
           </div>
