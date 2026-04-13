@@ -226,6 +226,10 @@ export default function AdminSessionPage() {
   const qrRef = useRef<HTMLDivElement | null>(null);
   /** Sync guard so rapid key repeats don’t stack before React re-renders */
   const adminActionBusyRef = useRef(false);
+  /** Speaker tick audio: match displayed second (ceil); survive Strict Mode remount without double first tick */
+  const speakerTickSlotEndsAtRef = useRef<number | null>(null);
+  const speakerTickSlowBucketRef = useRef<number | null>(null);
+  const speakerTickFastBucketRef = useRef<number | null>(null);
 
   function beginAdminShortcutAction() {
     if (adminActionBusyRef.current) return false;
@@ -548,27 +552,36 @@ export default function AdminSessionPage() {
   }, [speakerFocus]);
 
   useEffect(() => {
-    if (!speakerFocus) return;
+    if (!speakerFocus) {
+      speakerTickSlotEndsAtRef.current = null;
+      speakerTickSlowBucketRef.current = null;
+      speakerTickFastBucketRef.current = null;
+      return;
+    }
     const endsAt = speakerFocus.endsAt;
-    let lastSlowBucket: number | null = null;
-    let lastFastBucket: number | null = null;
+    if (speakerTickSlotEndsAtRef.current !== endsAt) {
+      speakerTickSlotEndsAtRef.current = endsAt;
+      speakerTickSlowBucketRef.current = null;
+      speakerTickFastBucketRef.current = null;
+    }
 
     const id = window.setInterval(() => {
       const msLeft = endsAt - Date.now();
       if (msLeft <= 0) return;
 
       if (msLeft > SPEAKER_TICK_ACCEL_MS) {
-        const b = Math.floor(msLeft / 1000);
-        if (lastSlowBucket !== b) {
-          lastSlowBucket = b;
-          lastFastBucket = null;
+        // Same as on-screen second: ceil — floor(60000/1000) drops 60→59 in 1ms and double-ticks
+        const b = Math.ceil(msLeft / 1000);
+        if (speakerTickSlowBucketRef.current !== b) {
+          speakerTickSlowBucketRef.current = b;
+          speakerTickFastBucketRef.current = null;
           playSpeakerCountdownTick();
         }
       } else {
-        const b = Math.floor(msLeft / 500);
-        if (lastFastBucket !== b) {
-          lastFastBucket = b;
-          lastSlowBucket = null;
+        const b = Math.ceil(msLeft / 500);
+        if (speakerTickFastBucketRef.current !== b) {
+          speakerTickFastBucketRef.current = b;
+          speakerTickSlowBucketRef.current = null;
           playSpeakerCountdownTick();
         }
       }
