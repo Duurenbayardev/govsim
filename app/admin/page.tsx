@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export default function AdminLandingPage() {
   const [loading, setLoading] = useState(false);
@@ -12,12 +12,67 @@ export default function AdminLandingPage() {
   const [error, setError] = useState<string | null>(null);
   const [isPageVisible, setIsPageVisible] = useState(false);
 
+  // 4-digit code state
+  const [sessionCode, setSessionCode] = useState(["", "", "", ""]);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const FIXED_CODE = process.env.NEXT_PUBLIC_ADMIN_FIXED_CODE || "0000";
+
+
   useEffect(() => {
     // Trigger entrance animation
     setTimeout(() => setIsPageVisible(true), 10);
   }, []);
 
+  // Handle input change for 4-digit code
+  const handleCodeChange = (index: number, value: string) => {
+    // Only allow digits
+    if (value && !/^\d$/.test(value)) return;
+
+    const newCode = [...sessionCode];
+    newCode[index] = value;
+    setSessionCode(newCode);
+
+    // Auto-focus next input
+    if (value && index < 3) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  // Handle backspace key
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !sessionCode[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  // Handle paste
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const paste = e.clipboardData.getData("text");
+    const digits = paste.replace(/\D/g, "").slice(0, 4);
+    if (digits) {
+      const newCode = [...sessionCode];
+      for (let i = 0; i < digits.length; i++) {
+        newCode[i] = digits[i];
+      }
+      setSessionCode(newCode);
+      const focusIndex = Math.min(digits.length, 3);
+      inputRefs.current[focusIndex]?.focus();
+    }
+  };
+
   async function createSession() {
+    const enteredCode = sessionCode.join("");
+
+    // Check if the entered code matches the fixed code
+    if (enteredCode !== FIXED_CODE) {
+      setError("Буруу код! Зөв 4 оронтой код оруулна уу.");
+      // Clear the inputs
+      setSessionCode(["", "", "", ""]);
+      inputRefs.current[0]?.focus();
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -53,9 +108,8 @@ export default function AdminLandingPage() {
         <div className="absolute top-1/2 left-1/2 h-[50%] w-[50%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/5 blur-[120px] animate-pulse-glow" />
       </div>
 
-      <div className={`relative z-10 w-full transition-all duration-700 ease-out ${
-        isPageVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-      }`}>
+      <div className={`relative z-10 w-full transition-all duration-700 ease-out ${isPageVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+        }`}>
         <button
           type="button"
           onClick={() => (window.history.length > 1 ? window.history.back() : window.location.assign("/"))}
@@ -68,27 +122,49 @@ export default function AdminLandingPage() {
         </button>
 
         <div className="mb-10">
-          <div className={`inline-block rounded-lg bg-amber-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-500 ring-1 ring-amber-500/20 transition-all duration-500 hover:scale-105 hover:bg-amber-500/20 ${
-            isPageVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
-          }`} style={{ transitionDelay: "100ms" }}>
+          <div className={`inline-block rounded-lg bg-amber-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-500 ring-1 ring-amber-500/20 transition-all duration-500 hover:scale-105 hover:bg-amber-500/20 ${isPageVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
+            }`} style={{ transitionDelay: "100ms" }}>
             Admin Control
           </div>
-          <h1 className={`oswald-ui mt-4 text-4xl font-bold tracking-tight text-white md:text-6xl uppercase transition-all duration-500 ${
-            isPageVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
-          }`} style={{ transitionDelay: "150ms" }}>
+          <h1 className={`oswald-ui mt-4 text-4xl font-bold tracking-tight text-white md:text-6xl uppercase transition-all duration-500 ${isPageVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
+            }`} style={{ transitionDelay: "150ms" }}>
             Танхимын удирдлага
           </h1>
-          <p className={`mt-3 text-sm leading-relaxed text-white/50 transition-all duration-500 ${
-            isPageVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
-          }`} style={{ transitionDelay: "200ms" }}>
-            Шинэ санал хураалтын хуралдаан үүсгэж, нууц түлхүүр олгоно. Түлхүүрийг аюулгүй хадгална уу.
+          <p className={`mt-3 text-sm leading-relaxed text-white/50 transition-all duration-500 ${isPageVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
+            }`} style={{ transitionDelay: "200ms" }}>
+            Шинэ санал хураалтын хуралдаан үүсгэхийн тулд 4 оронтой кодыг оруулна уу.
           </p>
         </div>
 
-        <div className={`rounded-[2.5rem] border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur-xl transition-all duration-700 ${
-          isPageVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-        }`} style={{ transitionDelay: "250ms" }}>
+        <div className={`rounded-[2.5rem] border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur-xl transition-all duration-700 ${isPageVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+          }`} style={{ transitionDelay: "250ms" }}>
           <div className="space-y-6">
+            {/* 4-digit code input */}
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">
+                Админ 4 оронтой код оруулна уу
+              </label>
+              <div className="mt-2 flex gap-3 justify-center">
+                {[0, 1, 2, 3].map((index) => (
+                  <input
+                    key={index}
+                    ref={(el) => {
+                      inputRefs.current[index] = el;
+                    }}
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={sessionCode[index]}
+                    onChange={(e) => handleCodeChange(index, e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(index, e)}
+                    onPaste={handlePaste}
+                    className="w-16 h-16 text-center rounded-2xl border border-white/10 bg-white/5 text-2xl font-bold text-white outline-none transition-all duration-300 hover:border-white/20 focus:border-amber-500/50 focus:bg-white/10 focus:scale-105"
+                    autoFocus={index === 0}
+                  />
+                ))}
+              </div>
+            </div>
+
             <div>
               <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">
                 Хуралдаанд оролцох хүний тоо
@@ -106,14 +182,12 @@ export default function AdminLandingPage() {
               disabled={loading}
               className="relative h-14 w-full rounded-2xl bg-white text-sm font-black uppercase tracking-widest text-slate-950 overflow-hidden transition-all duration-300 hover:bg-amber-500 hover:text-white hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100"
             >
-              <span className={`inline-flex items-center justify-center gap-2 transition-all duration-300 ${
-                loading ? "opacity-0 translate-y-8" : "opacity-100 translate-y-0"
-              }`}>
+              <span className={`inline-flex items-center justify-center gap-2 transition-all duration-300 ${loading ? "opacity-0 translate-y-8" : "opacity-100 translate-y-0"
+                }`}>
                 Хуралдаан үүсгэх
               </span>
-              <span className={`absolute inset-0 inline-flex items-center justify-center gap-2 transition-all duration-300 ${
-                loading ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-8"
-              }`}>
+              <span className={`absolute inset-0 inline-flex items-center justify-center gap-2 transition-all duration-300 ${loading ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-8"
+                }`}>
                 <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
